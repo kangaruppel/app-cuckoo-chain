@@ -20,11 +20,27 @@
 // If you link-in wisp-base, then you have to define some symbols.
 uint8_t usrBank[USRBANK_SIZE];
 
+#define NUM_BUCKETS 32 // must be a power of 2
+
+typedef uint16_t value_t;
 typedef uint16_t hash_t;
+typedef uint16_t fingerprint_t;
+typedef uint16_t index_t; // bucket index
+
+struct msg_key {
+    CHAN_FIELD(value_t, key);
+};
+
+struct msg_fingerprint {
+    CHAN_FIELD(fingerprint_t, fingerprint);
+};
+
+struct msg_index {
+    CHAN_FIELD(index_t, index);
+};
 
 struct msg_hash_args {
-    CHAN_FIELD(uint8_t, data); // TODO: array?
-    CHAN_FIELD(unsigned, data_len);
+    CHAN_FIELD(value_t, data);
     CHAN_FIELD(const task_t*, next_task);
 };
 
@@ -34,7 +50,14 @@ struct msg_hash {
 
 TASK(1,  task_init)
 TASK(2,  task_hash)
-TASK(3,  task_hashed)
+TASK(3,  task_insert)
+TASK(4,  task_fingerprint)
+TASK(5,  task_index_1)
+TASK(6,  task_index_2)
+
+MULTICAST_CHANNEL(msg_key, ch_key, task_init, task_insert, task_fingerprint);
+CHANNEL(task_fingerprint, task_index_1, msg_fingerprint);
+CHANNEL(task_index_1, task_index_2, msg_index);
 
 CALL_CHANNEL(ch_hash, msg_hash_args);
 RET_CHANNEL(ch_hash, msg_hash);
@@ -52,10 +75,9 @@ hash_t djb_hash(uint8_t* data, unsigned len)
 
 void task_hash()
 {
-    uint8_t *data = CHAN_IN1(data, CALL_CH(ch_hash));
-    unsigned data_len = *CHAN_IN1(data_len, CALL_CH(ch_hash));
-
-    hash_t hash = djb_hash(data, data_len);
+    value_t data = *CHAN_IN1(data, CALL_CH(ch_hash));
+    hash_t hash = djb_hash((uint8_t *)&data, sizeof(value_t));
+    LOG("hash: data %04x hash %04x\r\n", data, hash);
 
     CHAN_OUT(hash, hash, RET_CH(ch_hash));
 
@@ -65,26 +87,87 @@ void task_hash()
 
 void task_init()
 {
-    const uint8_t data = 'X';
-    const unsigned data_len = 1;
+    const value_t key = 0x4242;
 
-    PRINTF("init\r\n");
-    PRINTF("data: %x len %u\r\n", data, data_len);
+    PRINTF("init: key: %x\r\n", key);
 
-    CHAN_OUT(data, data, CALL_CH(ch_hash));
-    CHAN_OUT(data_len, data_len, CALL_CH(ch_hash));
+    CHAN_OUT(key, key, MC_OUT_CH(ch_key, task_init,
+                                 task_insert, task_fingerprint));
 
-    CHAN_OUT(next_task, TASK_REF(task_hashed), CALL_CH(ch_hash));
+    TRANSITION_TO(task_insert);
+}
+
+void task_insert()
+{
+    value_t key = *CHAN_IN1(key, MC_IN_CH(ch_key, task_init, task_insert));
+
+    LOG("insert: key: %x\r\n", key);
+
+    // Call: calc the fingerprint for the key by hashing the key
+    //
+    // NOTE: The fingerprint now is the same hash function the one for
+    // calculating the index, but we don't re-use to keep the code modular,
+    // because these hash functions may be different.
+
+    CHAN_OUT(data, key, CALL_CH(ch_hash));
+
+    CHAN_OUT(next_task, TASK_REF(task_fingerprint), CALL_CH(ch_hash));
     TRANSITION_TO(task_hash);
 }
 
-void task_hashed()
+void task_fingerprint()
 {
-    PRINTF("hashed\r\n");
+    hash_t hash = *CHAN_IN1(hash, RET_CH(ch_hash));
+    LOG("fingerprint: hash %04x\r\n", hash);
 
+    fingerprint_t fingerprint = hash; // could be more complex
+
+    CHAN_OUT(fingerprint, fingerprint, CH(task_fingerprint, task_index_1));
+
+    // TODO: send the fingerprint to somewhere
+
+    // Call: calc the index 1 of the key by hashing the key
+
+    value_t key = *CHAN_IN1(key, MC_IN_CH(ch_key, task_init, task_fingerprint));
+
+    LOG("fingerprint: key %x\r\n", key);
+
+    CHAN_OUT(data, key, CALL_CH(ch_hash));
+
+    CHAN_OUT(next_task, TASK_REF(task_index_1), CALL_CH(ch_hash));
+    TRANSITION_TO(task_hash);
+}
+
+void task_index_1()
+{
     hash_t hash = *CHAN_IN1(hash, RET_CH(ch_hash));
 
-    PRINTF("hash: %04x\r\n", hash);
+    index_t index1 = hash & (NUM_BUCKETS - 1); // & (x-1) valid only for power of 2
+    LOG("index1: key hash: %04x idx1 %04x\r\n", hash, index1);
+
+    CHAN_OUT(index, index1, CH(task_index_1, task_index_2));
+
+    // Call: hash the fingerprint
+
+    fingerprint_t fingerprint = *CHAN_IN1(fingerprint,
+                                CH(task_fingerprint, task_index_1));
+
+    CHAN_OUT(data, fingerprint, CALL_CH(ch_hash));
+
+    CHAN_OUT(next_task, TASK_REF(task_index_2), CALL_CH(ch_hash));
+    TRANSITION_TO(task_hash);
+}
+
+void task_index_2()
+{
+    hash_t hash = *CHAN_IN1(hash, RET_CH(ch_hash));
+    index_t index1 = *CHAN_IN1(index, CH(task_index_1, task_index_2));
+
+    hash_t fp_hash = hash & (NUM_BUCKETS - 1); // & (x-1) valid only for power of 2
+    index_t index2 = index1 ^ fp_hash;
+
+    LOG("index2: fp hash: %04x idx1 %04x idx2 %04x\r\n",
+        fp_hash, index1, index2);
 
     volatile uint32_t delay = 0xffff;
     while (delay--);

@@ -240,9 +240,12 @@ void task_add()
 
     if (!fp1) {
         LOG("add: filled empty slot at idx1 %u\r\n", index1);
+
         CHAN_OUT(filter[index1], fp, CH(task_add, task_relocate));
         CHAN_OUT(filter[index1], fp, SELF_OUT_CH(task_add));
         CHAN_OUT(filter[index1], fp, CH(task_add, task_insert_done));
+
+        TRANSITION_TO(task_insert_done);
     } else {
         index_t index2 = *CHAN_IN1(index, CH(task_index_2, task_add));
         fingerprint_t fp2 = *CHAN_IN3(filter[index2],
@@ -253,9 +256,12 @@ void task_add()
 
         if (!fp2) {
             LOG("add: filled empty slot at idx2 %u\r\n", index2);
+
             CHAN_OUT(filter[index2], fp, CH(task_add, task_relocate));
             CHAN_OUT(filter[index2], fp, SELF_OUT_CH(task_add));
             CHAN_OUT(filter[index2], fp, CH(task_add, task_insert_done));
+
+            TRANSITION_TO(task_insert_done);
         } else { // evict one of the two entries
             fingerprint_t fp_victim;
             index_t index_victim;

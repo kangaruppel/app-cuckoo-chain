@@ -389,7 +389,7 @@ void task_insert_done()
                                      CH(task_add, task_insert_done),
                                      CH(task_relocate, task_insert_done));
         LOG("%04x ", fp);
-        if (i % 8 == 0)
+        if (i > 0 && (i + 1) % 8 == 0)
             LOG("\r\n");
     }
     LOG("\r\n");

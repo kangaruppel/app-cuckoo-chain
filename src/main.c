@@ -70,7 +70,9 @@ TASK(7,  task_add)
 TASK(8,  task_relocate)
 TASK(9,  task_insert_done)
 
-MULTICAST_CHANNEL(msg_key, ch_key, task_init, task_insert, task_fingerprint);
+CHANNEL(task_init, task_insert, msg_key);
+CHANNEL(task_insert, task_fingerprint, msg_key);
+SELF_CHANNEL(task_insert, msg_key);
 MULTICAST_CHANNEL(msg_filter, ch_filter, task_init,
                   task_add, task_relocate, task_insert_done);
 MULTICAST_CHANNEL(msg_fingerprint, ch_fingerprint, task_fingerprint,
@@ -121,16 +123,12 @@ void task_hash()
 
 void task_init()
 {
-    const value_t key = 0x4242;
+    value_t key = 0x1;
     unsigned i;
-
-    volatile uint32_t delay = 0xffff;
-    while (delay--);
 
     PRINTF("init: key: %x\r\n", key);
 
-    CHAN_OUT(key, key, MC_OUT_CH(ch_key, task_init,
-                                 task_insert, task_fingerprint));
+    CHAN_OUT(key, key, CH(task_init, task_insert));
 
     for (i = 0; i < NUM_BUCKETS; ++i) {
         CHAN_OUT(filter[i], 0, MC_OUT_CH(ch_filter, task_init,
@@ -142,9 +140,15 @@ void task_init()
 
 void task_insert()
 {
-    value_t key = *CHAN_IN1(key, MC_IN_CH(ch_key, task_init, task_insert));
+    value_t key = *CHAN_IN2(key, CH(task_init, task_insert),
+                                 SELF_IN_CH(task_insert));
 
     LOG("insert: key: %x\r\n", key);
+
+    CHAN_OUT(key, key, CH(task_insert, task_fingerprint));
+
+    // insert consecutive integers, for testing
+    CHAN_OUT(key, key + 1, SELF_OUT_CH(task_insert));
 
     // Call: calc the fingerprint for the key by hashing the key
     //
@@ -173,7 +177,7 @@ void task_fingerprint()
 
     // Call: calc the index 1 of the key by hashing the key
 
-    value_t key = *CHAN_IN1(key, MC_IN_CH(ch_key, task_init, task_fingerprint));
+    value_t key = *CHAN_IN1(key, CH(task_insert, task_fingerprint));
 
     LOG("fingerprint: key %x\r\n", key);
 
@@ -371,8 +375,10 @@ void task_insert_done()
     }
     LOG("\r\n");
 
-    while(1);
-    //TRANSITION_TO(task_init);
+    volatile uint32_t delay = 0xfffff;
+    while (delay--);
+
+    TRANSITION_TO(task_insert);
 }
 
 void init()

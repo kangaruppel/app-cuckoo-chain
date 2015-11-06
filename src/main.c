@@ -32,6 +32,10 @@ struct msg_key {
     CHAN_FIELD(value_t, key);
 };
 
+struct msg_self_key {
+    SELF_CHAN_FIELD(value_t, key);
+};
+
 struct msg_fingerprint {
     CHAN_FIELD(fingerprint_t, fingerprint);
 };
@@ -44,11 +48,22 @@ struct msg_filter {
     CHAN_FIELD_ARRAY(fingerprint_t, filter, NUM_BUCKETS);
 };
 
+struct msg_self_filter {
+    SELF_CHAN_FIELD_ARRAY(fingerprint_t, filter, NUM_BUCKETS);
+};
+
 struct msg_victim {
     CHAN_FIELD_ARRAY(fingerprint_t, filter, NUM_BUCKETS);
     CHAN_FIELD(fingerprint_t, fp_victim);
     CHAN_FIELD(index_t, index_victim);
     CHAN_FIELD(unsigned, relocation_count);
+};
+
+struct msg_self_victim {
+    SELF_CHAN_FIELD_ARRAY(fingerprint_t, filter, NUM_BUCKETS);
+    SELF_CHAN_FIELD(fingerprint_t, fp_victim);
+    SELF_CHAN_FIELD(index_t, index_victim);
+    SELF_CHAN_FIELD(unsigned, relocation_count);
 };
 
 struct msg_hash_args {
@@ -72,7 +87,7 @@ TASK(9,  task_insert_done)
 
 CHANNEL(task_init, task_insert, msg_key);
 CHANNEL(task_insert, task_fingerprint, msg_key);
-SELF_CHANNEL(task_insert, msg_key);
+SELF_CHANNEL(task_insert, msg_self_key);
 MULTICAST_CHANNEL(msg_filter, ch_filter, task_init,
                   task_add, task_relocate, task_insert_done);
 MULTICAST_CHANNEL(msg_fingerprint, ch_fingerprint, task_fingerprint,
@@ -81,11 +96,11 @@ MULTICAST_CHANNEL(msg_index, ch_index, task_index_1,
                   task_index_2, task_add);
 CHANNEL(task_index_2, task_add, msg_index);
 CHANNEL(task_add, task_relocate, msg_victim);
-SELF_CHANNEL(task_add, msg_filter);
+SELF_CHANNEL(task_add, msg_self_filter);
 CHANNEL(task_add, task_insert_done, msg_filter);
 MULTICAST_CHANNEL(msg_filter, ch_reloc_filter, task_relocate,
                   task_add, task_insert_done);
-SELF_CHANNEL(task_relocate, msg_victim);
+SELF_CHANNEL(task_relocate, msg_self_victim);
 CHANNEL(task_relocate, task_add, msg_filter);
 CHANNEL(task_relocate, task_insert_done, msg_filter);
 

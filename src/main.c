@@ -111,13 +111,14 @@ hash_t djb_hash(uint8_t* data, unsigned len)
 
 void task_hash()
 {
-    value_t data = *CHAN_IN1(data, CALL_CH(ch_hash));
+    value_t data = *CHAN_IN1(value_t, data, CALL_CH(ch_hash));
     hash_t hash = djb_hash((uint8_t *)&data, sizeof(value_t));
     LOG("hash: data %04x hash %04x\r\n", data, hash);
 
-    CHAN_OUT(hash, hash, RET_CH(ch_hash));
+    CHAN_OUT1(hash_t, hash, hash, RET_CH(ch_hash));
 
-    const task_t *next_task = *CHAN_IN1(next_task, CALL_CH(ch_hash));
+    const task_t *next_task = *CHAN_IN1(const task_t*, next_task,
+                                        CALL_CH(ch_hash));
     transition_to(next_task);
 }
 
@@ -128,10 +129,11 @@ void task_init()
 
     PRINTF("init: key: %x\r\n", key);
 
-    CHAN_OUT(key, key, CH(task_init, task_insert));
+    CHAN_OUT1(value_t, key, key, CH(task_init, task_insert));
 
     for (i = 0; i < NUM_BUCKETS; ++i) {
-        CHAN_OUT(filter[i], 0, MC_OUT_CH(ch_filter, task_init,
+        fingerprint_t fp = 0;
+        CHAN_OUT1(fingerprint_t, filter[i], fp, MC_OUT_CH(ch_filter, task_init,
                                task_add, task_relocate, task_insert_done));
     }
 
@@ -140,15 +142,12 @@ void task_init()
 
 void task_insert()
 {
-    value_t key = *CHAN_IN2(key, CH(task_init, task_insert),
-                                 SELF_IN_CH(task_insert));
+    value_t key = *CHAN_IN2(value_t, key, CH(task_init, task_insert),
+                                          SELF_IN_CH(task_insert));
 
     LOG("insert: key: %x\r\n", key);
 
-    CHAN_OUT(key, key, CH(task_insert, task_fingerprint));
-
-    // insert consecutive integers, for testing
-    CHAN_OUT(key, key + 1, SELF_OUT_CH(task_insert));
+    CHAN_OUT1(value_t, key, key, CH(task_insert, task_fingerprint));
 
     // Call: calc the fingerprint for the key by hashing the key
     //
@@ -156,20 +155,24 @@ void task_insert()
     // calculating the index, but we don't re-use to keep the code modular,
     // because these hash functions may be different.
 
-    CHAN_OUT(data, key, CALL_CH(ch_hash));
+    CHAN_OUT1(value_t, data, key, CALL_CH(ch_hash));
+    CHAN_OUT1(const task_t*, next_task,
+              TASK_REF(task_fingerprint), CALL_CH(ch_hash));
 
-    CHAN_OUT(next_task, TASK_REF(task_fingerprint), CALL_CH(ch_hash));
+    key++; // insert consecutive integers, for testing
+    CHAN_OUT1(value_t, key, key, SELF_OUT_CH(task_insert));
+
     TRANSITION_TO(task_hash);
 }
 
 void task_fingerprint()
 {
-    hash_t hash = *CHAN_IN1(hash, RET_CH(ch_hash));
+    hash_t hash = *CHAN_IN1(hash_t, hash, RET_CH(ch_hash));
     LOG("fingerprint: hash %04x\r\n", hash);
 
     fingerprint_t fingerprint = hash; // could be more complex
 
-    CHAN_OUT(fingerprint, fingerprint,
+    CHAN_OUT1(fingerprint_t, fingerprint, fingerprint,
              MC_OUT_CH(ch_fingerprint, task_fingerprint,
                        task_index_1, task_add));
 
@@ -177,42 +180,45 @@ void task_fingerprint()
 
     // Call: calc the index 1 of the key by hashing the key
 
-    value_t key = *CHAN_IN1(key, CH(task_insert, task_fingerprint));
+    value_t key = *CHAN_IN1(value_t, key, CH(task_insert, task_fingerprint));
 
     LOG("fingerprint: key %x\r\n", key);
 
-    CHAN_OUT(data, key, CALL_CH(ch_hash));
+    CHAN_OUT1(value_t, data, key, CALL_CH(ch_hash));
 
-    CHAN_OUT(next_task, TASK_REF(task_index_1), CALL_CH(ch_hash));
+    CHAN_OUT1(const task_t*, next_task,
+              TASK_REF(task_index_1), CALL_CH(ch_hash));
     TRANSITION_TO(task_hash);
 }
 
 void task_index_1()
 {
-    hash_t hash = *CHAN_IN1(hash, RET_CH(ch_hash));
+    hash_t hash = *CHAN_IN1(hash_t, hash, RET_CH(ch_hash));
 
     index_t index1 = hash & (NUM_BUCKETS - 1); // & (x-1) valid only for power of 2
     LOG("index1: key hash: %04x idx1 %u\r\n", hash, index1);
 
-    CHAN_OUT(index, index1, MC_OUT_CH(ch_index, task_index_1,
+    CHAN_OUT1(index_t, index, index1, MC_OUT_CH(ch_index, task_index_1,
                                       task_index_2, task_add));
 
     // Call: hash the fingerprint
 
-    fingerprint_t fp = *CHAN_IN1(fingerprint,
+    fingerprint_t fp = *CHAN_IN1(fingerprint_t, fingerprint,
                         MC_IN_CH(ch_fingerprint, task_fingerprint, task_index_1));
     LOG("index1: fp: %04x\r\n", fp);
 
-    CHAN_OUT(data, fp, CALL_CH(ch_hash));
+    value_t fp_val = (value_t)fp; // cast for clarity
+    CHAN_OUT1(value_t, data, fp_val, CALL_CH(ch_hash));
 
-    CHAN_OUT(next_task, TASK_REF(task_index_2), CALL_CH(ch_hash));
+    CHAN_OUT1(const task_t*, next_task,
+              TASK_REF(task_index_2), CALL_CH(ch_hash));
     TRANSITION_TO(task_hash);
 }
 
 void task_index_2()
 {
-    hash_t hash = *CHAN_IN1(hash, RET_CH(ch_hash));
-    index_t index1 = *CHAN_IN1(index,
+    hash_t hash = *CHAN_IN1(hash_t, hash, RET_CH(ch_hash));
+    index_t index1 = *CHAN_IN1(index_t, index,
                       MC_IN_CH(ch_index, task_index_1, task_index_2));
 
     hash_t fp_hash = hash & (NUM_BUCKETS - 1); // & (x-1) valid only for power of 2
@@ -221,22 +227,24 @@ void task_index_2()
     LOG("index2: fp hash: %04x idx1 %u idx2 %u\r\n",
         fp_hash, index1, index2);
 
-    CHAN_OUT(index, index2, CH(task_index_2, task_add));
+    CHAN_OUT1(index_t, index, index2, CH(task_index_2, task_add));
     TRANSITION_TO(task_add);
 }
 
 void task_add()
 {
     // Fingerprint being inserted
-    fingerprint_t fp = *CHAN_IN1(fingerprint, MC_IN_CH(ch_fingerprint,
-                                              task_fingerprint, task_add));
+    fingerprint_t fp = *CHAN_IN1(fingerprint_t, fingerprint,
+                                 MC_IN_CH(ch_fingerprint,
+                                          task_fingerprint, task_add));
     LOG("add: fp %04x\r\n", fp);
 
     // index1,fp1 and index2,fp2 are the two alternative buckets
 
-    index_t index1 = *CHAN_IN1(index, MC_IN_CH(ch_index, task_index_1, task_add));
+    index_t index1 = *CHAN_IN1(index_t, index,
+                               MC_IN_CH(ch_index, task_index_1, task_add));
 
-    fingerprint_t fp1 = *CHAN_IN3(filter[index1],
+    fingerprint_t fp1 = *CHAN_IN3(fingerprint_t, filter[index1],
                                  MC_IN_CH(ch_filter, task_init, task_add),
                                  CH(task_relocate, task_add),
                                  SELF_IN_CH(task_add));
@@ -245,14 +253,14 @@ void task_add()
     if (!fp1) {
         LOG("add: filled empty slot at idx1 %u\r\n", index1);
 
-        CHAN_OUT(filter[index1], fp, CH(task_add, task_relocate));
-        CHAN_OUT(filter[index1], fp, SELF_OUT_CH(task_add));
-        CHAN_OUT(filter[index1], fp, CH(task_add, task_insert_done));
+        CHAN_OUT3(fingerprint_t, filter[index1], fp,
+                  CH(task_add, task_relocate), SELF_OUT_CH(task_add),
+                  CH(task_add, task_insert_done));
 
         TRANSITION_TO(task_insert_done);
     } else {
-        index_t index2 = *CHAN_IN1(index, CH(task_index_2, task_add));
-        fingerprint_t fp2 = *CHAN_IN3(filter[index2],
+        index_t index2 = *CHAN_IN1(index_t, index, CH(task_index_2, task_add));
+        fingerprint_t fp2 = *CHAN_IN3(fingerprint_t, filter[index2],
                                      MC_IN_CH(ch_filter, task_init, task_add),
                                      CH(task_relocate, task_add),
                                      SELF_IN_CH(task_add));
@@ -261,9 +269,9 @@ void task_add()
         if (!fp2) {
             LOG("add: filled empty slot at idx2 %u\r\n", index2);
 
-            CHAN_OUT(filter[index2], fp, CH(task_add, task_relocate));
-            CHAN_OUT(filter[index2], fp, SELF_OUT_CH(task_add));
-            CHAN_OUT(filter[index2], fp, CH(task_add, task_insert_done));
+            CHAN_OUT3(fingerprint_t, filter[index2], fp,
+                      CH(task_add, task_relocate), SELF_OUT_CH(task_add),
+                      CH(task_add, task_insert_done));
 
             TRANSITION_TO(task_insert_done);
         } else { // evict one of the two entries
@@ -281,20 +289,23 @@ void task_add()
             LOG("add: evict [%u] = %04x\r\n", index_victim, fp_victim);
 
             // Evict the victim
-            CHAN_OUT(filter[index_victim], fp, CH(task_add, task_relocate));
-            CHAN_OUT(filter[index_victim], fp, SELF_OUT_CH(task_add));
-            CHAN_OUT(filter[index_victim], fp, CH(task_add, task_insert_done));
+            CHAN_OUT3(fingerprint_t, filter[index_victim], fp,
+                     CH(task_add, task_relocate), SELF_OUT_CH(task_add),
+                     CH(task_add, task_insert_done));
 
-            CHAN_OUT(index_victim, index_victim, CH(task_add, task_relocate));
-            CHAN_OUT(fp_victim, fp_victim, CH(task_add, task_relocate));
-            CHAN_OUT(relocation_count, 0, CH(task_add, task_relocate));
+            CHAN_OUT1(index_t, index_victim, index_victim, CH(task_add, task_relocate));
+            CHAN_OUT1(fingerprint_t, fp_victim, fp_victim, CH(task_add, task_relocate));
+            unsigned relocation_count = 0;
+            CHAN_OUT1(unsigned, relocation_count, relocation_count,
+                      CH(task_add, task_relocate));
 
             // Call: hash fingerprint of victim
             // TODO: consider making fingerprint task callable
 
-            CHAN_OUT(data, fp_victim, CALL_CH(ch_hash));
+            value_t fp_victim_val = (value_t)fp_victim; // cast for clarity
+            CHAN_OUT1(value_t, data, fp_victim_val, CALL_CH(ch_hash));
 
-            CHAN_OUT(next_task, TASK_REF(task_relocate), CALL_CH(ch_hash));
+            CHAN_OUT1(task_t*, next_task, TASK_REF(task_relocate), CALL_CH(ch_hash));
             TRANSITION_TO(task_hash);
         }
     }
@@ -302,37 +313,38 @@ void task_add()
 
 void task_relocate()
 {
-    hash_t fp_hash_victim = *CHAN_IN1(hash, RET_CH(ch_hash));
+    hash_t fp_hash_victim = *CHAN_IN1(hash_t, hash, RET_CH(ch_hash));
 
-    fingerprint_t fp_victim = *CHAN_IN2(fp_victim, CH(task_add, task_relocate),
-                                                   SELF_IN_CH(task_relocate));
+    fingerprint_t fp_victim = *CHAN_IN2(fingerprint_t, fp_victim,
+                                        CH(task_add, task_relocate),
+                                        SELF_IN_CH(task_relocate));
 
-    index_t index1_victim = *CHAN_IN2(index_victim, CH(task_add, task_relocate),
-                                                    SELF_IN_CH(task_relocate));
+    index_t index1_victim = *CHAN_IN2(index_t, index_victim,
+                                      CH(task_add, task_relocate),
+                                      SELF_IN_CH(task_relocate));
 
     index_t index2_victim = index1_victim ^ fp_hash_victim;
 
     LOG("relocate: victim fp hash %04x idx1 %u idx2 %u\r\n",
         fp_hash_victim, index1_victim, index2_victim);
 
-    fingerprint_t fp_next_victim = *CHAN_IN3(filter[index2_victim],
-                                    MC_IN_CH(ch_filter, task_init, task_relocate),
-                                    CH(task_add, task_relocate),
-                                    SELF_IN_CH(task_relocate));
+    fingerprint_t fp_next_victim =
+        *CHAN_IN3(fingerprint_t, filter[index2_victim],
+                  MC_IN_CH(ch_filter, task_init, task_relocate),
+                  CH(task_add, task_relocate), SELF_IN_CH(task_relocate));
 
     LOG("relocate: next victim fp %04x\r\n", fp_next_victim);
 
     // Evict the next victim
-    CHAN_OUT(filter[index2_victim], fp_victim,
-             CH(task_relocate, task_add));
-    CHAN_OUT(filter[index2_victim], fp_victim, SELF_OUT_CH(task_relocate));
-    CHAN_OUT(filter[index2_victim], fp_victim, CH(task_relocate, task_insert_done));
+    CHAN_OUT3(fingerprint_t, filter[index2_victim], fp_victim,
+             CH(task_relocate, task_add), SELF_OUT_CH(task_relocate),
+             CH(task_relocate, task_insert_done));
 
     if (fp_next_victim) { // slot was free 
         TRANSITION_TO(task_insert_done);
     } else { // slot was occupied, rellocate the next victim
 
-        unsigned relocation_count = *CHAN_IN2(relocation_count,
+        unsigned relocation_count = *CHAN_IN2(unsigned, relocation_count,
                                               CH(task_add, task_relocate),
                                               SELF_IN_CH(task_relocate));
 
@@ -344,16 +356,18 @@ void task_relocate()
         }
 
         relocation_count++;
-        CHAN_OUT(relocation_count, relocation_count, SELF_OUT_CH(task_relocate));
+        CHAN_OUT1(unsigned, relocation_count, relocation_count,
+                 SELF_OUT_CH(task_relocate));
 
-        CHAN_OUT(index_victim, index2_victim, SELF_OUT_CH(task_relocate));
-        CHAN_OUT(fp_victim, fp_next_victim, SELF_OUT_CH(task_relocate));
+        CHAN_OUT1(index_t, index_victim, index2_victim, SELF_OUT_CH(task_relocate));
+        CHAN_OUT1(fingerprint_t, fp_victim, fp_next_victim, SELF_OUT_CH(task_relocate));
 
         // Call: hash next victim's fingerprint
 
-        CHAN_OUT(data, fp_next_victim, CALL_CH(ch_hash));
+        value_t fp_next_victim_val = (value_t)fp_next_victim; // cast for clarity
+        CHAN_OUT1(value_t, data, fp_next_victim_val, CALL_CH(ch_hash));
 
-        CHAN_OUT(next_task, TASK_REF(task_relocate), CALL_CH(ch_hash));
+        CHAN_OUT1(task_t*, next_task, TASK_REF(task_relocate), CALL_CH(ch_hash));
         TRANSITION_TO(task_hash);
     }
 }
@@ -364,7 +378,7 @@ void task_insert_done()
 
     LOG("insert done: filter:\r\n");
     for (i = 0; i < NUM_BUCKETS; ++i) {
-        fingerprint_t fp = *CHAN_IN3(filter[i],
+        fingerprint_t fp = *CHAN_IN3(fingerprint_t, filter[i],
                                      MC_IN_CH(ch_filter, task_init,
                                               task_insert_done),
                                      CH(task_add, task_insert_done),

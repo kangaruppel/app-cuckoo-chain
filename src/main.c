@@ -87,6 +87,7 @@ TASK(8,  task_insert_done)
 
 CHANNEL(task_init, task_insert, msg_key);
 MULTICAST_CHANNEL(msg_key, ch_key, task_insert, task_fingerprint, task_index_1);
+SELF_CHANNEL(task_insert, msg_self_key);
 MULTICAST_CHANNEL(msg_filter, ch_filter, task_init,
                   task_add, task_relocate, task_insert_done);
 MULTICAST_CHANNEL(msg_fingerprint, ch_fingerprint, task_fingerprint,
@@ -140,11 +141,19 @@ void task_init()
 
 void task_insert()
 {
-    value_t key = rand(); // insert pseudo-random integers, for testing
+    value_t key = *CHAN_IN2(value_t, key, CH(task_init, task_insert),
+                                          SELF_IN_CH(task_insert));
+
+    // insert pseufo-random integers, for testing
+    // If we use consecutive ints, they hash to consecutive DJB hashes...
+    // TODO: just use rand() instead?
+    key = (key + 1) * 17;
+
     LOG("insert: key: %x\r\n", key);
 
-    CHAN_OUT1(value_t, key, key,
-              MC_OUT_CH(ch_key, task_insert, task_fingerprint, task_index_1));
+    CHAN_OUT2(value_t, key, key,
+              MC_OUT_CH(ch_key, task_insert, task_fingerprint, task_index_1),
+              SELF_OUT_CH(task_insert));
 
     TRANSITION_TO(task_fingerprint);
 }

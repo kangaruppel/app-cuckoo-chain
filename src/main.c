@@ -146,7 +146,8 @@ void task_insert()
 
     // insert pseufo-random integers, for testing
     // If we use consecutive ints, they hash to consecutive DJB hashes...
-    // TODO: just use rand() instead?
+    // NOTE: we are not using rand(), to have the sequence available to verify
+    // that that are no false negatives (and avoid having to save the values).
     key = (key + 1) * 17;
 
     LOG("insert: key: %x\r\n", key);

@@ -159,7 +159,9 @@ void task_insert()
     CHAN_OUT1(const task_t*, next_task,
               TASK_REF(task_fingerprint), CALL_CH(ch_hash));
 
-    key++; // insert consecutive integers, for testing
+    // insert pseufo-random integers, for testing
+    // If we use consecutive ints, they hash to consecutive DJB hashes...
+    key = (key + 1) * 17;
     CHAN_OUT1(value_t, key, key, SELF_OUT_CH(task_insert));
 
     TRANSITION_TO(task_hash);

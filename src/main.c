@@ -188,8 +188,6 @@ void task_fingerprint()
              MC_OUT_CH(ch_fingerprint, task_fingerprint,
                        task_index_1, task_add));
 
-    // TODO: send the fingerprint to somewhere
-
     // Call: calc the index 1 of the key by hashing the key
 
     value_t key = *CHAN_IN1(value_t, key, CH(task_insert, task_fingerprint));

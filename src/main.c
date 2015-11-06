@@ -171,8 +171,8 @@ void task_insert()
     // because these hash functions may be different.
 
     CHAN_OUT1(value_t, data, key, CALL_CH(ch_hash));
-    CHAN_OUT1(const task_t*, next_task,
-              TASK_REF(task_fingerprint), CALL_CH(ch_hash));
+    const task_t *next_task = TASK_REF(task_fingerprint);
+    CHAN_OUT1(const task_t*, next_task, next_task, CALL_CH(ch_hash));
 
     // insert pseufo-random integers, for testing
     // If we use consecutive ints, they hash to consecutive DJB hashes...
@@ -203,8 +203,8 @@ void task_fingerprint()
 
     CHAN_OUT1(value_t, data, key, CALL_CH(ch_hash));
 
-    CHAN_OUT1(const task_t*, next_task,
-              TASK_REF(task_index_1), CALL_CH(ch_hash));
+    const task_t *next_task = TASK_REF(task_index_1);
+    CHAN_OUT1(const task_t*, next_task, next_task, CALL_CH(ch_hash));
     TRANSITION_TO(task_hash);
 }
 
@@ -227,8 +227,8 @@ void task_index_1()
     value_t fp_val = (value_t)fp; // cast for clarity
     CHAN_OUT1(value_t, data, fp_val, CALL_CH(ch_hash));
 
-    CHAN_OUT1(const task_t*, next_task,
-              TASK_REF(task_index_2), CALL_CH(ch_hash));
+    const task_t *next_task = TASK_REF(task_index_2);
+    CHAN_OUT1(const task_t*, next_task, next_task, CALL_CH(ch_hash));
     TRANSITION_TO(task_hash);
 }
 
@@ -322,7 +322,8 @@ void task_add()
             value_t fp_victim_val = (value_t)fp_victim; // cast for clarity
             CHAN_OUT1(value_t, data, fp_victim_val, CALL_CH(ch_hash));
 
-            CHAN_OUT1(task_t*, next_task, TASK_REF(task_relocate), CALL_CH(ch_hash));
+            const task_t *next_task = TASK_REF(task_relocate);
+            CHAN_OUT1(const task_t*, next_task, next_task, CALL_CH(ch_hash));
             TRANSITION_TO(task_hash);
         }
     }
@@ -387,7 +388,8 @@ void task_relocate()
         value_t fp_next_victim_val = (value_t)fp_next_victim; // cast for clarity
         CHAN_OUT1(value_t, data, fp_next_victim_val, CALL_CH(ch_hash));
 
-        CHAN_OUT1(task_t*, next_task, TASK_REF(task_relocate), CALL_CH(ch_hash));
+        const task_t *next_task = TASK_REF(task_relocate);
+        CHAN_OUT1(const task_t*, next_task, next_task, CALL_CH(ch_hash));
         TRANSITION_TO(task_hash);
     }
 }

@@ -317,6 +317,9 @@ void task_relocate()
 {
     hash_t fp_hash_victim = *CHAN_IN1(hash_t, hash, RET_CH(ch_hash));
 
+    // TODO: create a fingerprint callable task that is seperate from hash task
+    fp_hash_victim &= (NUM_BUCKETS - 1);
+
     fingerprint_t fp_victim = *CHAN_IN2(fingerprint_t, fp_victim,
                                         CH(task_add, task_relocate),
                                         SELF_IN_CH(task_relocate));

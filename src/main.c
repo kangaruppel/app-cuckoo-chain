@@ -345,7 +345,7 @@ void task_relocate()
              CH(task_relocate, task_add), SELF_OUT_CH(task_relocate),
              CH(task_relocate, task_insert_done));
 
-    if (fp_next_victim) { // slot was free 
+    if (!fp_next_victim) { // slot was free
         TRANSITION_TO(task_insert_done);
     } else { // slot was occupied, rellocate the next victim
 

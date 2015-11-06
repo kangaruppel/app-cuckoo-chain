@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #include <libmsp/mem.h>
 #include <wisp-base.h>
@@ -106,12 +107,6 @@ CHANNEL(task_relocate, task_insert_done, msg_filter);
 
 CALL_CHANNEL(ch_hash, msg_hash_args);
 RET_CHANNEL(ch_hash, msg_hash);
-
-unsigned rand()
-{
-    // TODO: implement
-    return 0;
-}
 
 hash_t djb_hash(uint8_t* data, unsigned len)
 {

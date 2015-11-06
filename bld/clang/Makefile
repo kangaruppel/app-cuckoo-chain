@@ -8,8 +8,6 @@ CONFIG_EDB ?= 0
 CONFIG_PRINTF_LIB ?= libmspconsole
 CONFIG_LIBEDB_PRINTF ?= bare
 
-LIBCHAIN_ENABLE_DIAGNOSTICS ?= 0
-
 include $(MAKER_ROOT)/Makefile.clang
 include $(MAKER_ROOT)/Makefile.board
 include $(MAKER_ROOT)/Makefile.console

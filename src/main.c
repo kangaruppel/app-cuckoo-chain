@@ -21,6 +21,8 @@
 // If you link-in wisp-base, then you have to define some symbols.
 uint8_t usrBank[USRBANK_SIZE];
 
+#define NUM_INSERTS 10
+#define NUM_LOOKUPS 10
 #define NUM_BUCKETS 32 // must be a power of 2
 #define MAX_RELOCATIONS 5
 
@@ -31,6 +33,11 @@ typedef uint16_t index_t; // bucket index
 
 struct msg_key {
     CHAN_FIELD(value_t, key);
+};
+
+struct msg_genkey {
+    CHAN_FIELD(value_t, key);
+    CHAN_FIELD(const task_t*, next_task);
 };
 
 struct msg_self_key {
@@ -76,17 +83,41 @@ struct msg_hash {
     CHAN_FIELD(hash_t, hash);
 };
 
-TASK(1,  task_init)
-TASK(2,  task_insert)
-TASK(3,  task_fingerprint)
-TASK(4,  task_index_1)
-TASK(5,  task_index_2)
-TASK(6,  task_add)
-TASK(7,  task_relocate)
-TASK(8,  task_insert_done)
+struct msg_member {
+    CHAN_FIELD(bool, member);
+};
 
-CHANNEL(task_init, task_insert, msg_key);
-MULTICAST_CHANNEL(msg_key, ch_key, task_insert, task_fingerprint, task_index_1);
+struct msg_lookup_result {
+    CHAN_FIELD(value_t, key);
+    CHAN_FIELD(bool, member);
+};
+
+struct msg_insert_count {
+    CHAN_FIELD(unsigned, insert_count);
+};
+
+struct msg_lookup_count {
+    CHAN_FIELD(unsigned, lookup_count);
+};
+
+TASK(1,  task_init)
+TASK(2,  task_generate_key)
+TASK(3,  task_insert)
+TASK(4,  task_fingerprint)
+TASK(5,  task_index_1)
+TASK(6,  task_index_2)
+TASK(7,  task_add)
+TASK(8,  task_relocate)
+TASK(9,  task_insert_done)
+TASK(10, task_lookup)
+TASK(11, task_lookup_search)
+TASK(12, task_lookup_done)
+
+CHANNEL(task_init, task_generate_key, msg_genkey);
+CHANNEL(task_init, task_insert_done, msg_insert_count);
+CHANNEL(task_init, task_lookup_done, msg_lookup_count);
+MULTICAST_CHANNEL(msg_key, ch_key, task_generate_key, task_insert, task_lookup);
+MULTICAST_CHANNEL(msg_key, ch_insert_key, task_insert, task_fingerprint, task_index_1);
 SELF_CHANNEL(task_insert, msg_self_key);
 MULTICAST_CHANNEL(msg_filter, ch_filter, task_init,
                   task_add, task_relocate, task_insert_done);
@@ -103,6 +134,15 @@ MULTICAST_CHANNEL(msg_filter, ch_reloc_filter, task_relocate,
 SELF_CHANNEL(task_relocate, msg_self_victim);
 CHANNEL(task_relocate, task_add, msg_filter);
 CHANNEL(task_relocate, task_insert_done, msg_filter);
+CHANNEL(task_lookup, task_lookup_done, msg_lookup_result);
+SELF_CHANNEL(task_insert_done, msg_insert_count);
+SELF_CHANNEL(task_lookup_done, msg_lookup_count);
+CHANNEL(task_insert_done, task_generate_key, msg_genkey);
+CHANNEL(task_lookup_done, task_generate_key, msg_genkey);
+SELF_CHANNEL(task_generate_key, msg_key);
+CHANNEL(task_lookup_search, task_lookup_done, msg_member);
+
+static value_t init_key = 0x0001; // seeds the pseudo-random sequence of keys
 
 static hash_t djb_hash(uint8_t* data, unsigned len)
 {
@@ -121,14 +161,16 @@ static index_t hash_to_index(fingerprint_t fp)
     return hash & (NUM_BUCKETS - 1); // NUM_BUCKETS must be power of 2
 }
 
+static fingerprint_t hash_to_fingerprint(value_t key)
+{
+    return djb_hash((uint8_t *)&key, sizeof(value_t));
+}
+
 void task_init()
 {
-    value_t key = 0x1;
     unsigned i;
 
-    PRINTF("init: key: %x\r\n", key);
-
-    CHAN_OUT1(value_t, key, key, CH(task_init, task_insert));
+    LOG("init\r\n");
 
     for (i = 0; i < NUM_BUCKETS; ++i) {
         fingerprint_t fp = 0;
@@ -136,13 +178,21 @@ void task_init()
                                task_add, task_relocate, task_insert_done));
     }
 
-    TRANSITION_TO(task_insert);
+    unsigned count = 0;
+    CHAN_OUT1(unsigned, insert_count, count, CH(task_init, task_insert_done));
+    CHAN_OUT1(unsigned, lookup_count, count, CH(task_init, task_lookup_done));
+
+    CHAN_OUT1(value_t, key, init_key, CH(task_init, task_generate_key));
+    const task_t *next_task = TASK_REF(task_insert);
+    CHAN_OUT1(const task_t *, next_task, next_task, CH(task_init, task_generate_key));
+    TRANSITION_TO(task_generate_key);
 }
 
-void task_insert()
+void task_generate_key()
 {
-    value_t key = *CHAN_IN2(value_t, key, CH(task_init, task_insert),
-                                          SELF_IN_CH(task_insert));
+    value_t key = *CHAN_IN3(value_t, key, CH(task_init, task_generate_key),
+                                          CH(task_insert_done, task_generate_key),
+                                          SELF_IN_CH(task_generate_key));
 
     // insert pseufo-random integers, for testing
     // If we use consecutive ints, they hash to consecutive DJB hashes...
@@ -150,21 +200,37 @@ void task_insert()
     // that that are no false negatives (and avoid having to save the values).
     key = (key + 1) * 17;
 
-    LOG("insert: key: %x\r\n", key);
+    LOG("generate_key: key: %x\r\n", key);
 
-    CHAN_OUT2(value_t, key, key,
-              MC_OUT_CH(ch_key, task_insert, task_fingerprint, task_index_1),
-              SELF_OUT_CH(task_insert));
+    CHAN_OUT2(value_t, key, key, MC_OUT_CH(ch_key, task_generate_key,
+                                           task_fingerprint, task_lookup),
+                                 SELF_OUT_CH(task_generate_key));
+
+    const task_t *next_task = *CHAN_IN2(const task_t *, next_task,
+                                        CH(task_init, task_generate_key),
+                                        CH(task_insert_done, task_generate_key));
+    transition_to(next_task);
+}
+
+// This task is a somewhat redundant proxy. But it will be a callable
+// task and also be responsible for making the call to calc_index.
+void task_insert()
+{
+    value_t key = *CHAN_IN1(value_t, key,
+                            MC_IN_CH(ch_key, task_generate_key, task_insert));
+
+    CHAN_OUT1(value_t, key, key, MC_OUT_CH(ch_insert_key, task_insert,
+                                           task_fingerprint, task_index_1));
 
     TRANSITION_TO(task_fingerprint);
 }
 
 void task_fingerprint()
 {
-    value_t key = *CHAN_IN1(value_t, key, MC_IN_CH(ch_key, task_insert,
+    value_t key = *CHAN_IN1(value_t, key, MC_IN_CH(ch_insert_key, task_insert,
                                                    task_fingerprint));
 
-    fingerprint_t fp = djb_hash((uint8_t *)&key, sizeof(value_t));
+    fingerprint_t fp = hash_to_fingerprint(key);
     LOG("fingerprint: key %04x fp %04x\r\n", key, fp);
 
     CHAN_OUT1(fingerprint_t, fingerprint, fp,
@@ -176,7 +242,7 @@ void task_fingerprint()
 
 void task_index_1()
 {
-    value_t key = *CHAN_IN1(value_t, key, MC_IN_CH(ch_key, task_insert,
+    value_t key = *CHAN_IN1(value_t, key, MC_IN_CH(ch_insert_key, task_insert,
                                                    task_index_1));
 
     index_t index1 = hash_to_index(key);
@@ -350,10 +416,100 @@ void task_insert_done()
     }
     LOG("\r\n");
 
+    unsigned insert_count = *CHAN_IN2(unsigned, insert_count,
+                                      CH(task_init, task_insert_done),
+                                      SELF_IN_CH(task_insert_done));
+    insert_count++;
+
+    CHAN_OUT1(unsigned, insert_count, insert_count, SELF_OUT_CH(task_insert_done));
+
     volatile uint32_t delay = 0xfffff;
     while (delay--);
 
-    TRANSITION_TO(task_insert);
+    if (insert_count < NUM_INSERTS) {
+        const task_t *next_task = TASK_REF(task_insert);
+        CHAN_OUT1(const task_t *, next_task, next_task, CH(task_insert_done, task_generate_key));
+        TRANSITION_TO(task_generate_key);
+    } else {
+        const task_t *next_task = TASK_REF(task_lookup);
+        CHAN_OUT1(value_t, key, init_key, CH(task_insert_done, task_generate_key));
+        CHAN_OUT1(const task_t *, next_task, next_task, CH(task_insert_done, task_generate_key));
+        TRANSITION_TO(task_generate_key);
+    }
+}
+
+void task_lookup()
+{
+    value_t key = *CHAN_IN1(value_t, key,
+                            MC_IN_CH(ch_key, task_generate_key,task_lookup));
+    LOG("lookup: key %04x\r\n", key);
+
+    CHAN_OUT1(value_t, key, key, CH(task_lookup, task_lookup_done));
+    
+#if 0 // draft
+    CHAN_OUT1(key, CALL_CH(ch_calc_indexes));
+    const task_t *next_task = TASK_REF(task_lookup_search);
+    CHAN_OUT1(const task_t *, next_task, next_task, CALL_CH(ch_calc_indexes));
+    TRANSITION_TO(task_calc_indexes);
+#else
+    TRANSITION_TO(task_lookup_search);
+#endif
+}
+
+void task_lookup_search()
+{
+#if 0 // draft
+    fingerprint_t fp1, fp2;
+
+    index_t index1 = CHAN_IN1(index_t, index1, RET_CH(ch_calc_indexes));
+    index_t index2 = CHAN_IN1(index_t, index2, RET_CH(ch_calc_indexes));
+    fingerprint_t fp = CHAN_IN1(fingerprint_t, fingerprint, RET_CH(ch_calc_indexes));
+
+    LOG("lookup search: fp %04x idx1 %u idx2 %u\r\n", fp, index1, index2);
+
+    fp1 = *CHAN_IN(fingerprint_t, filter[index1], ...);
+
+    if (fp1 == fp) {
+        LOG("lookup search: fp %04x: MEMBER\r\n", fp);
+    } else {
+        fp2 = *CHAN_IN(fingerprint_t, filter[index2], ...);
+
+        if (fp2 == fp) {
+            LOG("lookup search: fp %04x: MEMBER\r\n", fp);
+        } else {
+            LOG("lookup search: fp %04x: NOT MEMBER (fp1 %04x fp2 %04x)\r\n", fp, fp1, fp2);
+        }
+    }
+#else
+    bool member = true;
+    CHAN_OUT1(bool, member, member, CH(task_lookup_search, task_lookup_done));
+    TRANSITION_TO(task_lookup_done);
+#endif
+}
+
+void task_lookup_done()
+{
+    value_t key = *CHAN_IN1(value_t, key, CH(task_lookup, task_lookup_done));
+    bool member = *CHAN_IN1(bool, member, CH(task_lookup_search, task_lookup_done));
+
+    unsigned lookup_count = *CHAN_IN2(unsigned, lookup_count,
+                                      CH(task_init, task_lookup_done),
+                                      SELF_IN_CH(task_lookup_done));
+
+
+    lookup_count++;
+    CHAN_OUT1(unsigned, lookup_count, lookup_count, SELF_OUT_CH(task_lookup_done));
+
+    LOG("lookup done [%u]: key %04x member %u\r\n", lookup_count, key, member);
+
+    if (lookup_count < NUM_LOOKUPS) {
+        const task_t *next_task = TASK_REF(task_lookup);
+        CHAN_OUT1(const task_t *, next_task, next_task, CH(task_lookup_done, task_generate_key));
+        TRANSITION_TO(task_generate_key);
+    } else {
+        LOG("program done\r\n");
+        TRANSITION_TO(task_init); // start over
+    }
 }
 
 void init()

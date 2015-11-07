@@ -40,16 +40,27 @@ struct msg_genkey {
     CHAN_FIELD(const task_t*, next_task);
 };
 
+struct msg_calc_indexes {
+    CHAN_FIELD(value_t, key);
+    CHAN_FIELD(const task_t*, next_task);
+};
+
 struct msg_self_key {
     SELF_CHAN_FIELD(value_t, key);
+};
+
+struct msg_indexes {
+    CHAN_FIELD(fingerprint_t, fingerprint);
+    CHAN_FIELD(index_t, index1);
+    CHAN_FIELD(index_t, index2);
 };
 
 struct msg_fingerprint {
     CHAN_FIELD(fingerprint_t, fingerprint);
 };
 
-struct msg_index {
-    CHAN_FIELD(index_t, index);
+struct msg_index1 {
+    CHAN_FIELD(index_t, index1);
 };
 
 struct msg_filter {
@@ -103,10 +114,10 @@ struct msg_lookup_count {
 TASK(1,  task_init)
 TASK(2,  task_generate_key)
 TASK(3,  task_insert)
-TASK(4,  task_fingerprint)
-TASK(5,  task_index_1)
-TASK(6,  task_index_2)
-TASK(7,  task_add)
+TASK(4,  task_calc_indexes)
+TASK(5,  task_calc_indexes_index_1)
+TASK(6,  task_calc_indexes_index_2)
+TASK(7,  task_add) // TODO: rename: add 'insert' prefix
 TASK(8,  task_relocate)
 TASK(9,  task_insert_done)
 TASK(10, task_lookup)
@@ -117,15 +128,13 @@ CHANNEL(task_init, task_generate_key, msg_genkey);
 CHANNEL(task_init, task_insert_done, msg_insert_count);
 CHANNEL(task_init, task_lookup_done, msg_lookup_count);
 MULTICAST_CHANNEL(msg_key, ch_key, task_generate_key, task_insert, task_lookup);
-MULTICAST_CHANNEL(msg_key, ch_insert_key, task_insert, task_fingerprint, task_index_1);
 SELF_CHANNEL(task_insert, msg_self_key);
 MULTICAST_CHANNEL(msg_filter, ch_filter, task_init,
                   task_add, task_relocate, task_insert_done);
-MULTICAST_CHANNEL(msg_fingerprint, ch_fingerprint, task_fingerprint,
-                  task_index_2, task_add);
-MULTICAST_CHANNEL(msg_index, ch_index, task_index_1,
-                  task_index_2, task_add);
-CHANNEL(task_index_2, task_add, msg_index);
+CALL_CHANNEL(ch_calc_indexes, msg_calc_indexes);
+RET_CHANNEL(ch_calc_indexes, msg_indexes);
+CHANNEL(task_calc_indexes, task_calc_indexes_index_2, msg_fingerprint);
+CHANNEL(task_calc_indexes_index_1, task_calc_indexes_index_2, msg_index1);
 CHANNEL(task_add, task_relocate, msg_victim);
 SELF_CHANNEL(task_add, msg_self_filter);
 CHANNEL(task_add, task_insert_done, msg_filter);
@@ -212,6 +221,54 @@ void task_generate_key()
     transition_to(next_task);
 }
 
+void task_calc_indexes()
+{
+    value_t key = *CHAN_IN1(value_t, key, CALL_CH(ch_calc_indexes));
+
+    fingerprint_t fp = hash_to_fingerprint(key);
+    LOG("calc indexes: fingerprint: key %04x fp %04x\r\n", key, fp);
+
+    CHAN_OUT2(fingerprint_t, fingerprint, fp,
+              CH(task_calc_indexes, task_calc_indexes_index_2),
+              RET_CH(ch_calc_indexes));
+
+    TRANSITION_TO(task_calc_indexes_index_1);
+}
+
+void task_calc_indexes_index_1()
+{
+    value_t key = *CHAN_IN1(value_t, key, CALL_CH(ch_calc_indexes));
+
+    index_t index1 = hash_to_index(key);
+    LOG("calc indexes: index1: key %04x idx1 %u\r\n", key, index1);
+
+    CHAN_OUT2(index_t, index1, index1,
+              CH(task_calc_indexes_index_1, task_calc_indexes_index_2),
+              RET_CH(ch_calc_indexes));
+
+    TRANSITION_TO(task_calc_indexes_index_2);
+}
+
+void task_calc_indexes_index_2()
+{
+    fingerprint_t fp = *CHAN_IN1(fingerprint_t, fingerprint,
+                                 CH(task_calc_indexes, task_calc_indexes_index_2));
+    index_t index1 = *CHAN_IN1(index_t, index1,
+                               CH(task_calc_indexes_index_1, task_calc_indexes_index_2));
+
+    index_t fp_hash = hash_to_index(fp);
+    index_t index2 = index1 ^ fp_hash;
+
+    LOG("calc indexes: index2: fp hash: %04x idx1 %u idx2 %u\r\n",
+        fp_hash, index1, index2);
+
+    CHAN_OUT1(index_t, index2, index2, RET_CH(ch_calc_indexes));
+
+    const task_t *next_task = *CHAN_IN1(const task_t *, next_task,
+                                        CALL_CH(ch_calc_indexes));
+    transition_to(next_task);
+}
+
 // This task is a somewhat redundant proxy. But it will be a callable
 // task and also be responsible for making the call to calc_index.
 void task_insert()
@@ -219,71 +276,24 @@ void task_insert()
     value_t key = *CHAN_IN1(value_t, key,
                             MC_IN_CH(ch_key, task_generate_key, task_insert));
 
-    CHAN_OUT1(value_t, key, key, MC_OUT_CH(ch_insert_key, task_insert,
-                                           task_fingerprint, task_index_1));
+    CHAN_OUT1(value_t, key, key, CALL_CH(ch_calc_indexes));
 
-    TRANSITION_TO(task_fingerprint);
+    const task_t *next_task = TASK_REF(task_add);
+    CHAN_OUT1(const task_t *, next_task, next_task, CALL_CH(ch_calc_indexes));
+    TRANSITION_TO(task_calc_indexes);
 }
 
-void task_fingerprint()
-{
-    value_t key = *CHAN_IN1(value_t, key, MC_IN_CH(ch_insert_key, task_insert,
-                                                   task_fingerprint));
-
-    fingerprint_t fp = hash_to_fingerprint(key);
-    LOG("fingerprint: key %04x fp %04x\r\n", key, fp);
-
-    CHAN_OUT1(fingerprint_t, fingerprint, fp,
-             MC_OUT_CH(ch_fingerprint, task_fingerprint,
-                       task_index_2, task_add));
-
-    TRANSITION_TO(task_index_1);
-}
-
-void task_index_1()
-{
-    value_t key = *CHAN_IN1(value_t, key, MC_IN_CH(ch_insert_key, task_insert,
-                                                   task_index_1));
-
-    index_t index1 = hash_to_index(key);
-    LOG("index1: key %04x idx1 %u\r\n", key, index1);
-
-    CHAN_OUT1(index_t, index, index1, MC_OUT_CH(ch_index, task_index_1,
-                                      task_index_2, task_add));
-
-    TRANSITION_TO(task_index_2);
-}
-
-void task_index_2()
-{
-    fingerprint_t fp = *CHAN_IN1(fingerprint_t, fingerprint,
-                                 MC_IN_CH(ch_fingerprint,
-                                          task_fingerprint, task_index_2));
-    index_t index1 = *CHAN_IN1(index_t, index,
-                      MC_IN_CH(ch_index, task_index_1, task_index_2));
-
-    index_t fp_hash = hash_to_index(fp);
-    index_t index2 = index1 ^ fp_hash;
-
-    LOG("index2: fp hash: %04x idx1 %u idx2 %u\r\n",
-        fp_hash, index1, index2);
-
-    CHAN_OUT1(index_t, index, index2, CH(task_index_2, task_add));
-    TRANSITION_TO(task_add);
-}
 
 void task_add()
 {
     // Fingerprint being inserted
     fingerprint_t fp = *CHAN_IN1(fingerprint_t, fingerprint,
-                                 MC_IN_CH(ch_fingerprint,
-                                          task_fingerprint, task_add));
+                                 RET_CH(ch_calc_indexes));
     LOG("add: fp %04x\r\n", fp);
 
     // index1,fp1 and index2,fp2 are the two alternative buckets
 
-    index_t index1 = *CHAN_IN1(index_t, index,
-                               MC_IN_CH(ch_index, task_index_1, task_add));
+    index_t index1 = *CHAN_IN1(index_t, index1, RET_CH(ch_calc_indexes));
 
     fingerprint_t fp1 = *CHAN_IN3(fingerprint_t, filter[index1],
                                  MC_IN_CH(ch_filter, task_init, task_add),
@@ -300,7 +310,7 @@ void task_add()
 
         TRANSITION_TO(task_insert_done);
     } else {
-        index_t index2 = *CHAN_IN1(index_t, index, CH(task_index_2, task_add));
+        index_t index2 = *CHAN_IN1(index_t, index2, RET_CH(ch_calc_indexes));
         fingerprint_t fp2 = *CHAN_IN3(fingerprint_t, filter[index2],
                                      MC_IN_CH(ch_filter, task_init, task_add),
                                      CH(task_relocate, task_add),

@@ -28,6 +28,16 @@ typedef uint16_t hash_t;
 typedef uint16_t fingerprint_t;
 typedef uint16_t index_t; // bucket index
 
+typedef struct _insert_count {
+    unsigned insert_count;
+    unsigned inserted_count;
+} insert_count_t;
+
+typedef struct _lookup_count {
+    unsigned lookup_count;
+    unsigned member_count;
+} lookup_count_t;
+
 struct msg_key {
     CHAN_FIELD(value_t, key);
 };
@@ -68,6 +78,11 @@ struct msg_self_filter {
     SELF_CHAN_FIELD_ARRAY(fingerprint_t, filter, NUM_BUCKETS);
 };
 
+struct msg_filter_insert_done {
+    CHAN_FIELD_ARRAY(fingerprint_t, filter, NUM_BUCKETS);
+    CHAN_FIELD(bool, success);
+};
+
 struct msg_victim {
     CHAN_FIELD_ARRAY(fingerprint_t, filter, NUM_BUCKETS);
     CHAN_FIELD(fingerprint_t, fp_victim);
@@ -100,12 +115,32 @@ struct msg_lookup_result {
     CHAN_FIELD(bool, member);
 };
 
+struct msg_self_insert_count {
+    SELF_CHAN_FIELD(unsigned, insert_count);
+    SELF_CHAN_FIELD(unsigned, inserted_count);
+};
+
+struct msg_self_lookup_count {
+    SELF_CHAN_FIELD(unsigned, lookup_count);
+    SELF_CHAN_FIELD(unsigned, member_count);
+};
+
 struct msg_insert_count {
     CHAN_FIELD(unsigned, insert_count);
+    CHAN_FIELD(unsigned, inserted_count);
 };
 
 struct msg_lookup_count {
     CHAN_FIELD(unsigned, lookup_count);
+    CHAN_FIELD(unsigned, member_count);
+};
+
+struct msg_inserted_count {
+    CHAN_FIELD(unsigned, inserted_count);
+};
+
+struct msg_member_count {
+    CHAN_FIELD(unsigned, member_count);
 };
 
 TASK(1,  task_init)
@@ -120,6 +155,8 @@ TASK(9,  task_insert_done)
 TASK(10, task_lookup)
 TASK(11, task_lookup_search)
 TASK(12, task_lookup_done)
+TASK(13, task_print_stats)
+TASK(14, task_done)
 
 CHANNEL(task_init, task_generate_key, msg_genkey);
 CHANNEL(task_init, task_insert_done, msg_insert_count);
@@ -128,29 +165,33 @@ MULTICAST_CHANNEL(msg_key, ch_key, task_generate_key, task_insert, task_lookup);
 SELF_CHANNEL(task_insert, msg_self_key);
 MULTICAST_CHANNEL(msg_filter, ch_filter, task_init,
                   task_add, task_relocate, task_insert_done,
-                  task_lookup_search);
+                  task_lookup_search, task_print_stats);
 MULTICAST_CHANNEL(msg_filter, ch_filter_add, task_add,
-                  task_relocate, task_insert_done, task_lookup_search);
+                  task_relocate, task_insert_done, task_lookup_search,
+                  task_print_stats);
 MULTICAST_CHANNEL(msg_filter, ch_filter_relocate, task_relocate,
-                  task_add, task_insert_done, task_lookup_search);
+                  task_add, task_insert_done, task_lookup_search,
+                  task_print_stats);
 CALL_CHANNEL(ch_calc_indexes, msg_calc_indexes);
 RET_CHANNEL(ch_calc_indexes, msg_indexes);
 CHANNEL(task_calc_indexes, task_calc_indexes_index_2, msg_fingerprint);
 CHANNEL(task_calc_indexes_index_1, task_calc_indexes_index_2, msg_index1);
 CHANNEL(task_add, task_relocate, msg_victim);
 SELF_CHANNEL(task_add, msg_self_filter);
-CHANNEL(task_add, task_insert_done, msg_filter);
+CHANNEL(task_add, task_insert_done, msg_filter_insert_done);
 MULTICAST_CHANNEL(msg_filter, ch_reloc_filter, task_relocate,
                   task_add, task_insert_done);
 SELF_CHANNEL(task_relocate, msg_self_victim);
 CHANNEL(task_relocate, task_add, msg_filter);
-CHANNEL(task_relocate, task_insert_done, msg_filter);
+CHANNEL(task_relocate, task_insert_done, msg_filter_insert_done);
 CHANNEL(task_lookup, task_lookup_done, msg_lookup_result);
-SELF_CHANNEL(task_insert_done, msg_insert_count);
-SELF_CHANNEL(task_lookup_done, msg_lookup_count);
+SELF_CHANNEL(task_insert_done, msg_self_insert_count);
+SELF_CHANNEL(task_lookup_done, msg_self_lookup_count);
 CHANNEL(task_insert_done, task_generate_key, msg_genkey);
 CHANNEL(task_lookup_done, task_generate_key, msg_genkey);
 SELF_CHANNEL(task_generate_key, msg_key);
+CHANNEL(task_insert_done, task_print_stats, msg_inserted_count);
+CHANNEL(task_lookup_done, task_print_stats, msg_member_count);
 CHANNEL(task_lookup_search, task_lookup_done, msg_member);
 
 static value_t init_key = 0x0001; // seeds the pseudo-random sequence of keys
@@ -186,12 +227,16 @@ void task_init()
     for (i = 0; i < NUM_BUCKETS; ++i) {
         fingerprint_t fp = 0;
         CHAN_OUT1(fingerprint_t, filter[i], fp, MC_OUT_CH(ch_filter, task_init,
-                               task_add, task_relocate, task_insert_done));
+                               task_add, task_relocate, task_insert_done,
+                               task_lookup_search, task_print_stats));
     }
 
     unsigned count = 0;
     CHAN_OUT1(unsigned, insert_count, count, CH(task_init, task_insert_done));
     CHAN_OUT1(unsigned, lookup_count, count, CH(task_init, task_lookup_done));
+
+    CHAN_OUT1(unsigned, inserted_count, count, CH(task_init, task_insert_done));
+    CHAN_OUT1(unsigned, member_count, count, CH(task_init, task_lookup_done));
 
     CHAN_OUT1(value_t, key, init_key, CH(task_init, task_generate_key));
     const task_t *next_task = TASK_REF(task_insert);
@@ -288,6 +333,8 @@ void task_insert()
 
 void task_add()
 {
+    bool success = true;
+
     // Fingerprint being inserted
     fingerprint_t fp = *CHAN_IN1(fingerprint_t, fingerprint,
                                  RET_CH(ch_calc_indexes));
@@ -308,9 +355,11 @@ void task_add()
 
         CHAN_OUT2(fingerprint_t, filter[index1], fp,
                   MC_OUT_CH(ch_filter_add, task_add,
-                            task_relocate, task_insert_done, task_lookup_search),
+                            task_relocate, task_insert_done,
+                            task_lookup_search, task_print_stats),
                   SELF_OUT_CH(task_add));
 
+        CHAN_OUT1(bool, success, success, CH(task_add, task_insert_done));
         TRANSITION_TO(task_insert_done);
     } else {
         index_t index2 = *CHAN_IN1(index_t, index2, RET_CH(ch_calc_indexes));
@@ -328,6 +377,7 @@ void task_add()
                                 task_relocate, task_insert_done, task_lookup_search),
                       SELF_OUT_CH(task_add));
 
+            CHAN_OUT1(bool, success, success, CH(task_add, task_insert_done));
             TRANSITION_TO(task_insert_done);
         } else { // evict one of the two entries
             fingerprint_t fp_victim;
@@ -387,10 +437,13 @@ void task_relocate()
     // Take victim's place
     CHAN_OUT2(fingerprint_t, filter[index2_victim], fp_victim,
              MC_OUT_CH(ch_filter_relocate, task_relocate,
-                       task_add, task_insert_done, task_lookup_search),
+                       task_add, task_insert_done, task_lookup_search,
+                       task_print_stats),
              SELF_OUT_CH(task_relocate));
 
     if (!fp_next_victim) { // slot was free
+        bool success = true;
+        CHAN_OUT1(bool, success, success, CH(task_relocate, task_insert_done));
         TRANSITION_TO(task_insert_done);
     } else { // slot was occupied, rellocate the next victim
 
@@ -402,6 +455,9 @@ void task_relocate()
 
         if (relocation_count >= MAX_RELOCATIONS) { // insert failed
             LOG("relocate: max relocs reached: %u\r\n", relocation_count);
+            PRINTF("insert: lost fp %04x\r\n", fp_next_victim);
+            bool success = false;
+            CHAN_OUT1(bool, success, success, CH(task_relocate, task_insert_done));
             TRANSITION_TO(task_insert_done);
         }
 
@@ -418,6 +474,7 @@ void task_relocate()
 
 void task_insert_done()
 {
+#if VERBOSE > 0
     unsigned i;
 
     LOG("insert done: filter:\r\n");
@@ -432,16 +489,30 @@ void task_insert_done()
             LOG("\r\n");
     }
     LOG("\r\n");
+#endif
 
     unsigned insert_count = *CHAN_IN2(unsigned, insert_count,
                                       CH(task_init, task_insert_done),
                                       SELF_IN_CH(task_insert_done));
     insert_count++;
-
     CHAN_OUT1(unsigned, insert_count, insert_count, SELF_OUT_CH(task_insert_done));
 
+    bool success = *CHAN_IN2(bool, success,
+                             CH(task_add, task_insert_done),
+                             CH(task_relocate, task_insert_done));
+
+    unsigned inserted_count = *CHAN_IN2(unsigned, inserted_count,
+                                        CH(task_init, task_insert_done),
+                                        SELF_IN_CH(task_insert_done));
+    inserted_count += success;
+    CHAN_OUT1(unsigned, inserted_count, inserted_count, SELF_OUT_CH(task_insert_done));
+
+    LOG("insert done: inserted count %u\r\n", inserted_count);
+
+#ifdef CONT_POWER
     volatile uint32_t delay = 0x8ffff;
     while (delay--);
+#endif
 
     if (insert_count < NUM_INSERTS) {
         const task_t *next_task = TASK_REF(task_insert);
@@ -449,6 +520,8 @@ void task_insert_done()
         TRANSITION_TO(task_generate_key);
     } else {
         const task_t *next_task = TASK_REF(task_lookup);
+        CHAN_OUT1(unsigned, inserted_count, inserted_count,
+                  CH(task_insert_done, task_print_stats));
         CHAN_OUT1(value_t, key, init_key, CH(task_insert_done, task_generate_key));
         CHAN_OUT1(const task_t *, next_task, next_task, CH(task_insert_done, task_generate_key));
         TRANSITION_TO(task_generate_key);
@@ -502,12 +575,16 @@ void task_lookup_search()
 
     LOG("lookup search: fp %04x member %u\r\n", fp, member);
     CHAN_OUT1(bool, member, member, CH(task_lookup_search, task_lookup_done));
+
+    if (!member) {
+        PRINTF("lookup: key %04x not member\r\n", fp);
+    }
+
     TRANSITION_TO(task_lookup_done);
 }
 
 void task_lookup_done()
 {
-    value_t key = *CHAN_IN1(value_t, key, CH(task_lookup, task_lookup_done));
     bool member = *CHAN_IN1(bool, member, CH(task_lookup_search, task_lookup_done));
 
     unsigned lookup_count = *CHAN_IN2(unsigned, lookup_count,
@@ -518,19 +595,69 @@ void task_lookup_done()
     lookup_count++;
     CHAN_OUT1(unsigned, lookup_count, lookup_count, SELF_OUT_CH(task_lookup_done));
 
+#if VERBOSE > 1
+    value_t key = *CHAN_IN1(value_t, key, CH(task_lookup, task_lookup_done));
     LOG("lookup done [%u]: key %04x member %u\r\n", lookup_count, key, member);
+#endif
 
+    unsigned member_count = *CHAN_IN2(bool, member_count,
+                                      CH(task_init, task_lookup_done),
+                                      SELF_IN_CH(task_lookup_done));
+
+
+    member_count += member;
+    CHAN_OUT1(unsigned, member_count, member_count, SELF_OUT_CH(task_lookup_done));
+
+    LOG("lookup done: member count %u\r\n", member_count);
+
+#ifdef CONT_POWER
     volatile uint32_t delay = 0x8ffff;
     while (delay--);
+#endif
 
     if (lookup_count < NUM_LOOKUPS) {
         const task_t *next_task = TASK_REF(task_lookup);
         CHAN_OUT1(const task_t *, next_task, next_task, CH(task_lookup_done, task_generate_key));
         TRANSITION_TO(task_generate_key);
     } else {
-        LOG("program done\r\n");
-        TRANSITION_TO(task_init); // start over
+        CHAN_OUT1(unsigned, member_count, member_count,
+                  CH(task_lookup_done, task_print_stats));
+        TRANSITION_TO(task_print_stats);
     }
+}
+
+void task_print_stats()
+{
+    unsigned i;
+
+    unsigned inserted_count = *CHAN_IN1(unsigned, inserted_count,
+                                     CH(task_insert_done, task_print_stats));
+    unsigned member_count = *CHAN_IN1(unsigned, member_count,
+                                     CH(task_lookup_done, task_print_stats));
+
+    PRINTF("stats: inserts %u members %u total %u\r\n",
+           inserted_count, member_count, NUM_INSERTS);
+
+    BLOCK_PRINTF_BEGIN();
+    BLOCK_PRINTF("filter:\r\n");
+    for (i = 0; i < NUM_BUCKETS; ++i) {
+        fingerprint_t fp = *CHAN_IN3(fingerprint_t, filter[i],
+                 MC_IN_CH(ch_filter, task_init, task_print_stats),
+                 MC_IN_CH(ch_filter_add, task_add, task_print_stats),
+                 MC_IN_CH(ch_filter_relocate, task_relocate, task_print_stats));
+
+        BLOCK_PRINTF("%04x ", fp);
+        if (i > 0 && (i + 1) % 8 == 0)
+            BLOCK_PRINTF("\r\n");
+    }
+    BLOCK_PRINTF_END();
+
+    TRANSITION_TO(task_done);
+}
+
+void task_done()
+{
+    TRANSITION_TO(task_done);
 }
 
 void init()

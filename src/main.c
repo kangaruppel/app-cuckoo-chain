@@ -44,17 +44,18 @@ struct msg_key {
 
 struct msg_genkey {
     CHAN_FIELD(value_t, key);
-    CHAN_FIELD(const task_t*, next_task);
+    CHAN_FIELD(task_t*, next_task);
 };
 
 struct msg_calc_indexes {
     CHAN_FIELD(value_t, key);
-    CHAN_FIELD(const task_t*, next_task);
+    CHAN_FIELD(task_t*, next_task);
 };
 
 struct msg_self_key {
     SELF_CHAN_FIELD(value_t, key);
 };
+#define NUM_FIELDS_msg_self_key 1
 
 struct msg_indexes {
     CHAN_FIELD(fingerprint_t, fingerprint);
@@ -77,6 +78,7 @@ struct msg_filter {
 struct msg_self_filter {
     SELF_CHAN_FIELD_ARRAY(fingerprint_t, filter, NUM_BUCKETS);
 };
+#define NUM_FIELDS_msg_self_filter 1
 
 struct msg_filter_insert_done {
     CHAN_FIELD_ARRAY(fingerprint_t, filter, NUM_BUCKETS);
@@ -96,10 +98,11 @@ struct msg_self_victim {
     SELF_CHAN_FIELD(index_t, index_victim);
     SELF_CHAN_FIELD(unsigned, relocation_count);
 };
+#define NUM_FIELDS_msg_self_victim 4
 
 struct msg_hash_args {
     CHAN_FIELD(value_t, data);
-    CHAN_FIELD(const task_t*, next_task);
+    CHAN_FIELD(task_t*, next_task);
 };
 
 struct msg_hash {
@@ -119,11 +122,13 @@ struct msg_self_insert_count {
     SELF_CHAN_FIELD(unsigned, insert_count);
     SELF_CHAN_FIELD(unsigned, inserted_count);
 };
+#define NUM_FIELDS_msg_self_insert_count 2
 
 struct msg_self_lookup_count {
     SELF_CHAN_FIELD(unsigned, lookup_count);
     SELF_CHAN_FIELD(unsigned, member_count);
 };
+#define NUM_FIELDS_msg_self_lookup_count 2
 
 struct msg_insert_count {
     CHAN_FIELD(unsigned, insert_count);
@@ -220,6 +225,8 @@ static fingerprint_t hash_to_fingerprint(value_t key)
 
 void task_init()
 {
+    task_prologue();
+
     unsigned i;
 
     LOG("init\r\n");
@@ -239,13 +246,15 @@ void task_init()
     CHAN_OUT1(unsigned, member_count, count, CH(task_init, task_lookup_done));
 
     CHAN_OUT1(value_t, key, init_key, CH(task_init, task_generate_key));
-    const task_t *next_task = TASK_REF(task_insert);
-    CHAN_OUT1(const task_t *, next_task, next_task, CH(task_init, task_generate_key));
+    task_t *next_task = TASK_REF(task_insert);
+    CHAN_OUT1(task_t *, next_task, next_task, CH(task_init, task_generate_key));
     TRANSITION_TO(task_generate_key);
 }
 
 void task_generate_key()
 {
+    task_prologue();
+
     value_t key = *CHAN_IN3(value_t, key, CH(task_init, task_generate_key),
                                           CH(task_insert_done, task_generate_key),
                                           SELF_IN_CH(task_generate_key));
@@ -262,14 +271,16 @@ void task_generate_key()
                                            task_fingerprint, task_lookup),
                                  SELF_OUT_CH(task_generate_key));
 
-    const task_t *next_task = *CHAN_IN2(const task_t *, next_task,
-                                        CH(task_init, task_generate_key),
-                                        CH(task_insert_done, task_generate_key));
+    task_t *next_task = *CHAN_IN2(task_t *, next_task,
+                                  CH(task_init, task_generate_key),
+                                  CH(task_insert_done, task_generate_key));
     transition_to(next_task);
 }
 
 void task_calc_indexes()
 {
+    task_prologue();
+
     value_t key = *CHAN_IN1(value_t, key, CALL_CH(ch_calc_indexes));
 
     fingerprint_t fp = hash_to_fingerprint(key);
@@ -284,6 +295,8 @@ void task_calc_indexes()
 
 void task_calc_indexes_index_1()
 {
+    task_prologue();
+
     value_t key = *CHAN_IN1(value_t, key, CALL_CH(ch_calc_indexes));
 
     index_t index1 = hash_to_index(key);
@@ -298,6 +311,8 @@ void task_calc_indexes_index_1()
 
 void task_calc_indexes_index_2()
 {
+    task_prologue();
+
     fingerprint_t fp = *CHAN_IN1(fingerprint_t, fingerprint,
                                  CH(task_calc_indexes, task_calc_indexes_index_2));
     index_t index1 = *CHAN_IN1(index_t, index1,
@@ -311,8 +326,8 @@ void task_calc_indexes_index_2()
 
     CHAN_OUT1(index_t, index2, index2, RET_CH(ch_calc_indexes));
 
-    const task_t *next_task = *CHAN_IN1(const task_t *, next_task,
-                                        CALL_CH(ch_calc_indexes));
+    task_t *next_task = *CHAN_IN1(task_t *, next_task,
+                                  CALL_CH(ch_calc_indexes));
     transition_to(next_task);
 }
 
@@ -320,19 +335,23 @@ void task_calc_indexes_index_2()
 // task and also be responsible for making the call to calc_index.
 void task_insert()
 {
+    task_prologue();
+
     value_t key = *CHAN_IN1(value_t, key,
                             MC_IN_CH(ch_key, task_generate_key, task_insert));
 
     CHAN_OUT1(value_t, key, key, CALL_CH(ch_calc_indexes));
 
-    const task_t *next_task = TASK_REF(task_add);
-    CHAN_OUT1(const task_t *, next_task, next_task, CALL_CH(ch_calc_indexes));
+    task_t *next_task = TASK_REF(task_add);
+    CHAN_OUT1(task_t *, next_task, next_task, CALL_CH(ch_calc_indexes));
     TRANSITION_TO(task_calc_indexes);
 }
 
 
 void task_add()
 {
+    task_prologue();
+
     bool success = true;
 
     // Fingerprint being inserted
@@ -412,6 +431,8 @@ void task_add()
 
 void task_relocate()
 {
+    task_prologue();
+
     fingerprint_t fp_victim = *CHAN_IN2(fingerprint_t, fp_victim,
                                         CH(task_add, task_relocate),
                                         SELF_IN_CH(task_relocate));
@@ -474,6 +495,8 @@ void task_relocate()
 
 void task_insert_done()
 {
+    task_prologue();
+
 #if VERBOSE > 0
     unsigned i;
 
@@ -515,21 +538,24 @@ void task_insert_done()
 #endif
 
     if (insert_count < NUM_INSERTS) {
-        const task_t *next_task = TASK_REF(task_insert);
-        CHAN_OUT1(const task_t *, next_task, next_task, CH(task_insert_done, task_generate_key));
+        task_t *next_task = TASK_REF(task_insert);
+        CHAN_OUT1(task_t *, next_task, next_task, CH(task_insert_done, task_generate_key));
         TRANSITION_TO(task_generate_key);
     } else {
-        const task_t *next_task = TASK_REF(task_lookup);
         CHAN_OUT1(unsigned, inserted_count, inserted_count,
                   CH(task_insert_done, task_print_stats));
+
+        task_t *next_task = TASK_REF(task_lookup);
         CHAN_OUT1(value_t, key, init_key, CH(task_insert_done, task_generate_key));
-        CHAN_OUT1(const task_t *, next_task, next_task, CH(task_insert_done, task_generate_key));
+        CHAN_OUT1(task_t *, next_task, next_task, CH(task_insert_done, task_generate_key));
         TRANSITION_TO(task_generate_key);
     }
 }
 
 void task_lookup()
 {
+    task_prologue();
+
     value_t key = *CHAN_IN1(value_t, key,
                             MC_IN_CH(ch_key, task_generate_key,task_lookup));
     LOG("lookup: key %04x\r\n", key);
@@ -537,13 +563,15 @@ void task_lookup()
     CHAN_OUT2(value_t, key, key, CALL_CH(ch_calc_indexes),
                                  CH(task_lookup, task_lookup_done));
     
-    const task_t *next_task = TASK_REF(task_lookup_search);
-    CHAN_OUT1(const task_t *, next_task, next_task, CALL_CH(ch_calc_indexes));
+    task_t *next_task = TASK_REF(task_lookup_search);
+    CHAN_OUT1(task_t *, next_task, next_task, CALL_CH(ch_calc_indexes));
     TRANSITION_TO(task_calc_indexes);
 }
 
 void task_lookup_search()
 {
+    task_prologue();
+
     fingerprint_t fp1, fp2;
     bool member = false;
 
@@ -585,6 +613,8 @@ void task_lookup_search()
 
 void task_lookup_done()
 {
+    task_prologue();
+
     bool member = *CHAN_IN1(bool, member, CH(task_lookup_search, task_lookup_done));
 
     unsigned lookup_count = *CHAN_IN2(unsigned, lookup_count,
@@ -616,8 +646,8 @@ void task_lookup_done()
 #endif
 
     if (lookup_count < NUM_LOOKUPS) {
-        const task_t *next_task = TASK_REF(task_lookup);
-        CHAN_OUT1(const task_t *, next_task, next_task, CH(task_lookup_done, task_generate_key));
+        task_t *next_task = TASK_REF(task_lookup);
+        CHAN_OUT1(task_t *, next_task, next_task, CH(task_lookup_done, task_generate_key));
         TRANSITION_TO(task_generate_key);
     } else {
         CHAN_OUT1(unsigned, member_count, member_count,
@@ -628,6 +658,8 @@ void task_lookup_done()
 
 void task_print_stats()
 {
+    task_prologue();
+
     unsigned i;
 
     unsigned inserted_count = *CHAN_IN1(unsigned, inserted_count,
@@ -657,6 +689,8 @@ void task_print_stats()
 
 void task_done()
 {
+    task_prologue();
+
     TRANSITION_TO(task_done);
 }
 

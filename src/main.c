@@ -189,9 +189,9 @@ SELF_CHANNEL(task_insert_done, msg_self_insert_count);
 SELF_CHANNEL(task_lookup_done, msg_self_lookup_count);
 CHANNEL(task_insert_done, task_generate_key, msg_genkey);
 CHANNEL(task_lookup_done, task_generate_key, msg_genkey);
-SELF_CHANNEL(task_generate_key, msg_key);
 CHANNEL(task_insert_done, task_print_stats, msg_inserted_count);
 CHANNEL(task_lookup_done, task_print_stats, msg_member_count);
+SELF_CHANNEL(task_generate_key, msg_self_key);
 CHANNEL(task_lookup_search, task_lookup_done, msg_member);
 
 static value_t init_key = 0x0001; // seeds the pseudo-random sequence of keys

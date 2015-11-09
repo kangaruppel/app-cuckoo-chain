@@ -18,9 +18,6 @@
 
 #include "pins.h"
 
-// If you link-in wisp-base, then you have to define some symbols.
-uint8_t usrBank[USRBANK_SIZE];
-
 #define NUM_INSERTS 10
 #define NUM_LOOKUPS 10
 #define NUM_BUCKETS 32 // must be a power of 2

@@ -18,10 +18,10 @@
 
 #include "pins.h"
 
-#define NUM_INSERTS 10
-#define NUM_LOOKUPS 10
-#define NUM_BUCKETS 32 // must be a power of 2
-#define MAX_RELOCATIONS 5
+#define NUM_INSERTS (NUM_BUCKETS / 4) // shoot for 25% occupancy
+#define NUM_LOOKUPS NUM_INSERTS
+#define NUM_BUCKETS 256 // must be a power of 2
+#define MAX_RELOCATIONS 8
 
 typedef uint16_t value_t;
 typedef uint16_t hash_t;

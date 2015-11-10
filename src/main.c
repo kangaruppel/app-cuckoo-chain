@@ -340,6 +340,8 @@ void task_insert()
     value_t key = *CHAN_IN1(value_t, key,
                             MC_IN_CH(ch_key, task_generate_key, task_insert));
 
+    LOG("insert: key %04x\r\n", key);
+
     CHAN_OUT1(value_t, key, key, CALL_CH(ch_calc_indexes));
 
     task_t *next_task = TASK_REF(task_add);
@@ -530,7 +532,7 @@ void task_insert_done()
     inserted_count += success;
     CHAN_OUT1(unsigned, inserted_count, inserted_count, SELF_OUT_CH(task_insert_done));
 
-    LOG("insert done: inserted count %u\r\n", inserted_count);
+    LOG("insert done: insert %u inserted %u\r\n", insert_count, inserted_count);
 
 #ifdef CONT_POWER
     volatile uint32_t delay = 0x8ffff;
@@ -638,7 +640,7 @@ void task_lookup_done()
     member_count += member;
     CHAN_OUT1(unsigned, member_count, member_count, SELF_OUT_CH(task_lookup_done));
 
-    LOG("lookup done: member count %u\r\n", member_count);
+    LOG("lookup done: lookups %u members %u\r\n", lookup_count, member_count);
 
 #ifdef CONT_POWER
     volatile uint32_t delay = 0x8ffff;

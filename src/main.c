@@ -55,7 +55,9 @@ struct msg_calc_indexes {
 struct msg_self_key {
     SELF_CHAN_FIELD(value_t, key);
 };
-#define NUM_FIELDS_msg_self_key 1
+#define FIELD_INIT_msg_self_key {\
+    SELF_FIELD_INITIALIZER \
+}
 
 struct msg_indexes {
     CHAN_FIELD(fingerprint_t, fingerprint);
@@ -78,7 +80,9 @@ struct msg_filter {
 struct msg_self_filter {
     SELF_CHAN_FIELD_ARRAY(fingerprint_t, filter, NUM_BUCKETS);
 };
-#define NUM_FIELDS_msg_self_filter 1
+#define FIELD_INIT_msg_self_filter { \
+    SELF_FIELD_ARRAY_INITIALIZER(NUM_BUCKETS) \
+}
 
 struct msg_filter_insert_done {
     CHAN_FIELD_ARRAY(fingerprint_t, filter, NUM_BUCKETS);
@@ -98,7 +102,12 @@ struct msg_self_victim {
     SELF_CHAN_FIELD(index_t, index_victim);
     SELF_CHAN_FIELD(unsigned, relocation_count);
 };
-#define NUM_FIELDS_msg_self_victim 4
+#define FIELD_INIT_msg_self_victim { \
+    SELF_FIELD_ARRAY_INITIALIZER(NUM_BUCKETS), \
+    SELF_FIELD_INITIALIZER, \
+    SELF_FIELD_INITIALIZER, \
+    SELF_FIELD_INITIALIZER \
+}
 
 struct msg_hash_args {
     CHAN_FIELD(value_t, data);
@@ -122,13 +131,19 @@ struct msg_self_insert_count {
     SELF_CHAN_FIELD(unsigned, insert_count);
     SELF_CHAN_FIELD(unsigned, inserted_count);
 };
-#define NUM_FIELDS_msg_self_insert_count 2
+#define FIELD_INIT_msg_self_insert_count {\
+    SELF_FIELD_INITIALIZER, \
+    SELF_FIELD_INITIALIZER \
+}
 
 struct msg_self_lookup_count {
     SELF_CHAN_FIELD(unsigned, lookup_count);
     SELF_CHAN_FIELD(unsigned, member_count);
 };
-#define NUM_FIELDS_msg_self_lookup_count 2
+#define FIELD_INIT_msg_self_lookup_count {\
+    SELF_FIELD_INITIALIZER, \
+    SELF_FIELD_INITIALIZER \
+}
 
 struct msg_insert_count {
     CHAN_FIELD(unsigned, insert_count);

@@ -255,8 +255,9 @@ void task_generate_key()
 {
     task_prologue();
 
-    value_t key = *CHAN_IN3(value_t, key, CH(task_init, task_generate_key),
+    value_t key = *CHAN_IN4(value_t, key, CH(task_init, task_generate_key),
                                           CH(task_insert_done, task_generate_key),
+                                          CH(task_lookup_done, task_generate_key),
                                           SELF_IN_CH(task_generate_key));
 
     // insert pseufo-random integers, for testing

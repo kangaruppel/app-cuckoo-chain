@@ -22,7 +22,6 @@ LFLAGS += \
 	-L $(LIBMSPMATH_ROOT)/bld/gcc \
 
 LIBS += \
-    -lchain \
 	-lmspmath \
 
 VPATH = ../../src

@@ -6,11 +6,15 @@
 #include <stdlib.h>
 
 #include <libmsp/mem.h>
-#include <wisp-base.h>
-#include <msp-math.h>
+#include <libwispbase/wisp-base.h>
+#include <libmspmath/msp-math.h>
 #include <libio/log.h>
 
 #include <libchain/chain.h>
+
+// Add in mutex and thread headers 
+#include <libchain/thread.h>
+#include <libchain/mutex.h>
 
 #ifdef CONFIG_EDB
 #include <libedb/edb.h>

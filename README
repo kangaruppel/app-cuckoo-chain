@@ -1,1 +1,5 @@
 An app that implements a Cuckoo Filter using channel abstraction.
+
+With added instrumentation to run multithreaded... This repo also 
+contains code for RSA, and the goals is to prove how simple it is
+to make a multithreaded application using the new interface. 

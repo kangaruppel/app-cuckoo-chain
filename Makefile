@@ -1,4 +1,5 @@
-export BOARD ?= mspts430
+override BOARD = capybara
+export BOARD = capybara
 
 TOOLS = \
 

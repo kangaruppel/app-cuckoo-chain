@@ -4,9 +4,6 @@
 [submodule "ext/libedb"]
 	path = ext/libedb
 	url = https://github.com/CMUAbstract/libedb.git
-[submodule "ext/maker"]
-	path = ext/maker
-	url = https://github.com/CMUAbstract/maker.git
 [submodule "ext/libwispbase"]
 	path = ext/libwispbase
 	url = https://github.com/CMUAbstract/libwispbase.git
@@ -25,3 +22,6 @@
 [submodule "ext/libmspmath"]
 	path = ext/libmspmath
 	url = https://github.com/CMUAbstract/libmspmath.git
+[submodule "maker2"]
+	path = ext/maker
+	url = /afs/ece.cmu.edu/project/abstract/repos/maker

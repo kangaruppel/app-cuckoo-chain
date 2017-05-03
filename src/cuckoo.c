@@ -22,6 +22,8 @@
 
 #include "pins.h"
 
+#include "../data/keysize.h"
+
 #define NUM_INSERTS (NUM_BUCKETS / 4) // shoot for 25% occupancy
 #define NUM_LOOKUPS NUM_INSERTS
 #define NUM_BUCKETS 256 // must be a power of 2

@@ -27,10 +27,10 @@
 
 #elif defined(BOARD_MSP_TS430)
 
-#define     PORT_LED_1           1
-#define     PIN_LED_1            1
+#define     PORT_LED_1           4
+#define     PIN_LED_1            6
 #define     PORT_LED_2           1
-#define     PIN_LED_2            2
+#define     PIN_LED_2            0
 #define     PORT_LED_3           1
 #define     PIN_LED_3            0
 
@@ -41,6 +41,14 @@
 
 #define     PORT_AUX3           1
 #define     PIN_AUX_3           4
+
+#elif defined(BOARD_CAPYBARA)
+
+#define PORT_DEBUG							3
+#define PIN_DEBUG_1							4
+#define PIN_DEBUG_2							5
+#define PIN_DEBUG_3							6
+
 
 #endif // BOARD_*
 

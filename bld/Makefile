@@ -1,7 +1,8 @@
-EXEC = blinker
+EXEC = cuckoo_rsa
 
 OBJECTS = \
-	main.o \
+	cuckoo.o \
+  rsa.o \
 
 DEPS += \
 	libchain \

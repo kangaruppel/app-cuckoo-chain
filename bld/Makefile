@@ -2,7 +2,6 @@ EXEC = cuckoo_rsa
 
 OBJECTS = \
 	cuckoo.o \
-  rsa.o \
 
 DEPS += \
 	libchain \

@@ -8,14 +8,19 @@
 
 #include <libmsp/mem.h>
 #include <libwispbase/wisp-base.h>
+#include <libchain/chain.h>
 #include <libmspmath/msp-math.h>
+
 #include <libio/log.h>
 
-#include <libchain/chain.h>
 
 // Add in mutex and thread headers 
 #include <libchain/thread.h>
 #include <libchain/mutex.h>
+
+#ifdef CONFIG_LIBEDB_PRINTF
+#include <libedb/edb.h>
+#endif
 
 #ifdef CONFIG_EDB
 #include <libedb/edb.h>
@@ -195,7 +200,7 @@ MULTICAST_CHANNEL(msg_filter, ch_filter, task_init,
                   task_add, task_relocate, task_insert_done,
                   task_lookup_search, task_print_stats);
 MULTICAST_CHANNEL(msg_filter, ch_filter_add, task_add,
-                  task_relocate, task_insert_done, task_lookup_search,
+                  tsk_relocate, task_insert_done, task_lookup_search,
                   task_print_stats);
 MULTICAST_CHANNEL(msg_filter, ch_filter_relocate, task_relocate,
                   task_add, task_insert_done, task_lookup_search,
@@ -228,6 +233,7 @@ CHANNEL(task_lookup_search, task_lookup_done, msg_member);
 #define NUM_DIGITS (KEY_SIZE_BITS / DIGIT_BITS)
 //Pay no attention to the hardcoded value behind the curtain... 
 #define NUM_DIGITS_x2 32
+
 
 typedef uint16_t digit_t;
 
@@ -290,6 +296,7 @@ struct msg_mult_mod_result {
 };
 
 struct msg_mult{
+    CHAN_FIELD_ARRAY(digit_t, A, NUM_DIGITS); 
     CHAN_FIELD_ARRAY(digit_t, B, NUM_DIGITS);
     CHAN_FIELD(unsigned, digit);
     CHAN_FIELD(unsigned, carry);
@@ -567,7 +574,8 @@ void task_init()
 {
     task_prologue();
     unsigned i;
-
+/*--------------------------thread_init call!!-----------------------------*/
+    thread_init(); 
 
 /*-----------------------Cuckoo app init start-----------------------------*/
 
@@ -678,6 +686,7 @@ void task_calc_indexes()
 void task_calc_indexes_index_1()
 {
     task_prologue();
+    LOG("CALC_INDEXES_cuckoo\r\n"); 
 
     value_t key = *CHAN_IN1(value_t, key, CALL_CH(ch_calc_indexes));
 
@@ -694,7 +703,7 @@ void task_calc_indexes_index_1()
 void task_calc_indexes_index_2()
 {
     task_prologue();
-
+    LOG("CALC_INDEXES_2_cuckoo\r\n"); 
     fingerprint_t fp = *CHAN_IN1(fingerprint_t, fingerprint,
                                  CH(task_calc_indexes, task_calc_indexes_index_2));
     index_t index1 = *CHAN_IN1(index_t, index1,
@@ -718,7 +727,7 @@ void task_calc_indexes_index_2()
 void task_insert()
 {
     task_prologue();
-
+    LOG("TASK_INSERT_cuckoo\r\n"); 
     value_t key = *CHAN_IN1(value_t, key,
                             MC_IN_CH(ch_key, task_generate_key, task_insert));
 
@@ -735,6 +744,7 @@ void task_insert()
 void task_add()
 {
     task_prologue();
+    LOG("TASK_ADD_cuckoo\r\n");
 
     bool success = true;
 
@@ -816,6 +826,7 @@ void task_add()
 void task_relocate()
 {
     task_prologue();
+    LOG("TASK_RELOCATE_cuckoo\r\n");
 
     fingerprint_t fp_victim = *CHAN_IN2(fingerprint_t, fp_victim,
                                         CH(task_add, task_relocate),
@@ -880,8 +891,9 @@ void task_relocate()
 void task_insert_done()
 {
     task_prologue();
+    LOG("TASK_INSERT_DONE_cuckoo\r\n"); 
 
-#if VERBOSE > 0
+//#if VERBOSE > 0
     unsigned i;
 
     LOG("insert done: filter:\r\n");
@@ -896,7 +908,7 @@ void task_insert_done()
             LOG("\r\n");
     }
     LOG("\r\n");
-#endif
+//#endif
 
     unsigned insert_count = *CHAN_IN2(unsigned, insert_count,
                                       CH(task_init, task_insert_done),
@@ -939,6 +951,7 @@ void task_insert_done()
 void task_lookup()
 {
     task_prologue();
+    LOG("TASK_LOOKUP_cuckoo\r\n"); 
 
     value_t key = *CHAN_IN1(value_t, key,
                             MC_IN_CH(ch_key, task_generate_key,task_lookup));
@@ -955,6 +968,7 @@ void task_lookup()
 void task_lookup_search()
 {
     task_prologue();
+    LOG("TASK_LOOKUP_SEARCH_cuckoo\r\n"); 
 
     fingerprint_t fp1, fp2;
     bool member = false;
@@ -998,6 +1012,7 @@ void task_lookup_search()
 void task_lookup_done()
 {
     task_prologue();
+    LOG("TASK_LOOKUP_DONE_cuckoo\r\n"); 
 
     bool member = *CHAN_IN1(bool, member, CH(task_lookup_search, task_lookup_done));
 
@@ -1009,10 +1024,10 @@ void task_lookup_done()
     lookup_count++;
     CHAN_OUT1(unsigned, lookup_count, lookup_count, SELF_OUT_CH(task_lookup_done));
 
-#if VERBOSE > 1
+//#if VERBOSE > 1
     value_t key = *CHAN_IN1(value_t, key, CH(task_lookup, task_lookup_done));
     LOG("lookup done [%u]: key %04x member %u\r\n", lookup_count, key, member);
-#endif
+//#endif
 
     unsigned member_count = *CHAN_IN2(bool, member_count,
                                       CH(task_init, task_lookup_done),
@@ -1043,6 +1058,7 @@ void task_lookup_done()
 void task_print_stats()
 {
     task_prologue();
+    LOG("TASK_PRINT_STATS_cuckoo\r\n"); 
 
     unsigned i;
 
@@ -1077,6 +1093,7 @@ void task_pad()
     int i;
     unsigned block_offset, message_length;
     digit_t m, e;
+    LOG("TASK_PAD_rsa\r\n"); 
 
 #ifdef SHOW_COARSE_PROGRESS_ON_LED
     GPIO(PORT_LED_1, OUT) &= ~BIT(PIN_LED_1);
@@ -1134,6 +1151,7 @@ void task_exp()
 {
     digit_t e;
     bool multiply;
+    LOG("TASK_EXP_rsa\r\n"); 
 
     e = *CHAN_IN2(digit_t, E, CH(task_pad, task_exp), SELF_IN_CH(task_exp));
     LOG("exp: e=%x\r\n", e);
@@ -1159,6 +1177,7 @@ void task_mult_block()
 {
     int i;
     digit_t b, m;
+    LOG("TASK_MULT_BLOCK_rsa\r\n"); 
 
     LOG("mult block\r\n");
 
@@ -1174,7 +1193,8 @@ void task_mult_block()
 
         LOG("mult block: a[%u]=%x b[%u]=%x\r\n", i, b, i, m);
     }
-    CHAN_OUT1(task_t*, next_task, TASK_REF(task_mult_block_get_result), CALL_CH(ch_mult_mod));
+    task_t *next_task =TASK_REF(task_mult_block_get_result); 
+    CHAN_OUT1(task_t*, next_task, next_task, CALL_CH(ch_mult_mod));
     TRANSITION_TO_MT(task_mult_mod);
 }
 
@@ -1183,6 +1203,7 @@ void task_mult_block_get_result()
     int i;
     digit_t m, e;
     unsigned cyphertext_len;
+    LOG("TASK_MULT_BLOCK_rsa\r\n"); 
 
     LOG("mult block get result: block: ");
     for (i = NUM_DIGITS - 1; i >= 0; --i) { // reverse for printing
@@ -1251,6 +1272,7 @@ void task_square_base()
 {
     int i;
     digit_t b;
+    LOG("TASK_SQUARE_BASE__rsa\r\n"); 
 
     LOG("square base\r\n");
 
@@ -1263,7 +1285,8 @@ void task_square_base()
 
         LOG("square base: b[%u]=%x\r\n", i, b);
     }
-    CHAN_OUT1(task_t*, next_task, TASK_REF(task_square_base_get_result), CALL_CH(ch_mult_mod));
+    task_t * next_task =TASK_REF(task_square_base_get_result); 
+    CHAN_OUT1(task_t*, next_task, next_task, CALL_CH(ch_mult_mod));
     TRANSITION_TO_MT(task_mult_mod);
 }
 
@@ -1272,6 +1295,7 @@ void task_square_base_get_result()
 {
     int i;
     digit_t b;
+    LOG("TASK_SQUARE_BASE_GET_RESULT_rsa\r\n"); 
 
     LOG("square base get result\r\n");
 
@@ -1291,6 +1315,7 @@ void task_print_cyphertext()
     unsigned cyphertext_len;
     digit_t c;
     char line[PRINT_HEX_ASCII_COLS];
+    LOG("TASK_PRINT_CYPHERTEXT_rsa\r\n"); 
 
     cyphertext_len = *CHAN_IN1(unsigned, cyphertext_len,
                                CH(task_mult_block_get_result, task_print_cyphertext));
@@ -1327,6 +1352,7 @@ void task_mult_mod()
 {
     int i;
     digit_t a, b;
+    LOG("TASK_MULT_MOD_rsa\r\n"); 
 
     LOG("mult mod\r\n");
 
@@ -1352,6 +1378,7 @@ void task_mult()
     digit_t a, b, c;
     digit_t dp, p, carry;
     int digit;
+    LOG("TASK_MULT_rsa\r\n"); 
 
 #ifdef SHOW_PROGRESS_ON_LED
     blink(1, BLINK_DURATION_TASK / 4, LED1);
@@ -1395,7 +1422,8 @@ void task_mult()
         CHAN_OUT1(int, digit, digit, SELF_OUT_CH(task_mult));
         TRANSITION_TO_MT(task_mult);
     } else {
-        CHAN_OUT1(task_t *, next_task, TASK_REF(task_reduce_digits), CALL_CH(ch_print_product));
+        task_t *next_task =TASK_REF(task_reduce_digits);  
+        CHAN_OUT1(task_t *, next_task, next_task , CALL_CH(ch_print_product));
         TRANSITION_TO_MT(task_print_product);
     }
 }
@@ -1404,6 +1432,7 @@ void task_reduce_digits()
 {
     int d;
     digit_t m;
+    LOG("TASK_REDUCE_DIGITS_rsa\r\n"); 
 
     LOG("reduce: digits\r\n");
 
@@ -1433,6 +1462,7 @@ void task_reduce_normalizable()
     int i;
     unsigned m, n, d, offset;
     bool normalizable = true;
+    LOG("TASK_REDUCE_NORMALIZABLE_rsa\r\n"); 
 
     LOG("reduce: normalizable\r\n");
 
@@ -1517,6 +1547,7 @@ void task_reduce_normalize()
     digit_t m, n, d, s;
     unsigned borrow, offset;
     const task_t *next_task;
+    LOG("TASK_REDUCE_NORMALIZE_rsa\r\n"); 
 
     LOG("normalize\r\n");
 
@@ -1597,7 +1628,7 @@ void task_reduce_n_divisor()
 
     LOG("reduce: n divisor: n[1]=%x n[0]=%x n_div=%x\r\n", n[1], n[0], n_div);
 
-    CHAN_OUT(n_div, n_div, CH(task_reduce_n_divisor, task_reduce_quotient));
+    CHAN_OUT1(digit_t, n_div, n_div, CH(task_reduce_n_divisor, task_reduce_quotient));
 
     TRANSITION_TO_MT(task_reduce_quotient);
 }
@@ -1747,8 +1778,8 @@ void task_reduce_multiply()
 
         CHAN_OUT1(digit_t, product[i], m, CALL_CH(ch_print_product));
     }
-
-    CHAN_OUT1(task_t *,next_task, TASK_REF(task_reduce_compare), CALL_CH(ch_print_product));
+    task_t *next_task =TASK_REF(task_reduce_compare);  
+    CHAN_OUT1(task_t *,next_task, next_task , CALL_CH(ch_print_product));
     TRANSITION_TO_MT(task_print_product);
 }
 
@@ -1864,8 +1895,8 @@ void task_reduce_add()
         CHAN_OUT1(digit_t, product[i], r, CH(task_reduce_add, task_reduce_subtract));
         CHAN_OUT1(digit_t, product[i], r, CALL_CH(ch_print_product));
     }
-
-    CHAN_OUT1(task_t *,next_task, TASK_REF(task_reduce_subtract), CALL_CH(ch_print_product));
+    task_t *next_task =TASK_REF(task_reduce_subtract);  
+    CHAN_OUT1(task_t *,next_task, next_task , CALL_CH(ch_print_product));
     TRANSITION_TO_MT(task_print_product);
 }
 
@@ -1940,7 +1971,8 @@ void task_reduce_subtract()
     }
 
     if (d > NUM_DIGITS) {
-        CHAN_OUT1(task_t *, next_task, TASK_REF(task_reduce_quotient), CALL_CH(ch_print_product));
+        task_t *next_task =TASK_REF(task_reduce_quotient);  
+        CHAN_OUT1(task_t *, next_task, next_task , CALL_CH(ch_print_product));
     } else { // reduction finished: exit from the reduce hypertask (after print)
         LOG("reduce: subtract: reduction done\r\n");
 

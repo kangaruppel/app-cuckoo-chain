@@ -634,7 +634,8 @@ void task_init()
 
 /*-----------------------THREAD_CREATE calls to separate programs--------------------------*/
     
-    THREAD_CREATE(task_pad);  
+    THREAD_CREATE(task_pad); 
+    THREAD_CREATE(task_generate_key); 
     TRANSITION_TO_MT(task_generate_key);
 }
 
@@ -1343,8 +1344,8 @@ void task_print_cyphertext()
 #ifdef SHOW_COARSE_PROGRESS_ON_LED
     blink(1, BLINK_MESSAGE_DONE, LED2);
 #endif
-
-    TRANSITION_TO_MT(task_init);
+    THREAD_END(); 
+    //TRANSITION_TO_MT(task_init);
 }
 
 // TODO: this task also looks like a proxy: is it avoidable?
@@ -1990,6 +1991,7 @@ void task_reduce_subtract()
 void task_print_product()
 {
     const task_t* next_task;
+    LOG("TASK_PRINT_PRODUCT_rsa\r\n"); 
 #ifdef VERBOSE
     int i;
     digit_t m;
@@ -2018,6 +2020,7 @@ void task_done()
 #elif defined(BOARD_CAPYBARA)
     GPIO(PORT_DEBUG, OUT) |= BIT(PIN_DEBUG_1); 
 #endif
+    THREAD_END(); 
     TRANSITION_TO_MT(task_done);
 }
 

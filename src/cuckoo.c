@@ -33,7 +33,7 @@
 /*--------------------------cuckoo defs and channels-----------------------------*/
 #define NUM_INSERTS (NUM_BUCKETS / 4) // shoot for 25% occupancy
 #define NUM_LOOKUPS NUM_INSERTS
-#define NUM_BUCKETS 256 // must be a power of 2
+#define NUM_BUCKETS 256//256 // must be a power of 2
 #define MAX_RELOCATIONS 8
 
 typedef uint16_t value_t;
@@ -440,9 +440,12 @@ TASK(19, task_reduce_quotient)
 TASK(20, task_reduce_multiply)
 TASK(21, task_reduce_compare)
 //Use extension to chain task definition 
+//TASK(32, task_reduce_add)
+//TASK(33, task_reduce_subtract)
+//TASK(34, task_print_product)
 TASK_EXT(18, task_reduce_add)
 TASK_EXT(19, task_reduce_subtract)
-TASK_EXT(10, task_print_product)
+TASK_EXT(20, task_print_product)
 
 MULTICAST_CHANNEL(msg_base, ch_base, task_init, task_square_base, task_mult_block);
 CHANNEL(task_init, task_pad, msg_message_info);
@@ -633,10 +636,9 @@ void task_init()
     LOG("init: done\r\n");
 
 /*-----------------------THREAD_CREATE calls to separate programs--------------------------*/
-    
-    THREAD_CREATE(task_pad); 
     THREAD_CREATE(task_generate_key); 
-    TRANSITION_TO_MT(task_generate_key);
+    THREAD_CREATE(task_pad); 
+    TRANSITION_TO_MT(task_pad);
 }
 
 
@@ -1094,7 +1096,6 @@ void task_pad()
     int i;
     unsigned block_offset, message_length;
     digit_t m, e;
-    LOG("TASK_PAD_rsa\r\n"); 
 
 #ifdef SHOW_COARSE_PROGRESS_ON_LED
     GPIO(PORT_LED_1, OUT) &= ~BIT(PIN_LED_1);
@@ -1122,10 +1123,13 @@ void task_pad()
 
     for (i = 0; i < NUM_DIGITS - NUM_PAD_DIGITS; ++i) {
         m = (block_offset + i < message_length) ? PLAINTEXT[block_offset + i] : 0xFF;
+        LOG("For iteration %u m = %u \r\n",i,m); 
         CHAN_OUT1(digit_t, base[i], m, MC_OUT_CH(ch_base, task_pad, task_mult_block,
                                                                   task_square_base));
     }
+    LOG("next loop: \r\n"); 
     for (i = NUM_DIGITS - NUM_PAD_DIGITS; i < NUM_DIGITS; ++i) {
+        LOG("For iteration %u m = %u \r\n",i,PAD_DIGITS[i]); 
         CHAN_OUT1(digit_t, base[i], PAD_DIGITS[i],
                  MC_OUT_CH(ch_base, task_pad, task_mult_block, task_square_base));
     }
@@ -1152,7 +1156,6 @@ void task_exp()
 {
     digit_t e;
     bool multiply;
-    LOG("TASK_EXP_rsa\r\n"); 
 
     e = *CHAN_IN2(digit_t, E, CH(task_pad, task_exp), SELF_IN_CH(task_exp));
     LOG("exp: e=%x\r\n", e);
@@ -1178,18 +1181,21 @@ void task_mult_block()
 {
     int i;
     digit_t b, m;
-    LOG("TASK_MULT_BLOCK_rsa\r\n"); 
 
     LOG("mult block\r\n");
-
+    //LOG("WRITING FROM %x and %x with offset %x \r\n",
+    //  MC_IN_CH(ch_base,task_pad,task_mult_block) + 1, 
+    //  MC_IN_CH(ch_square_base, task_square_base_get_result, task_mult_block),
+    //  offsetof(struct msg_base,base));
     // TODO: pass args to mult: message * base
     for (i = 0; i < NUM_DIGITS; ++i) {
         b = *CHAN_IN2(digit_t, base[i], MC_IN_CH(ch_base, task_pad, task_mult_block),
                         MC_IN_CH(ch_square_base, task_square_base_get_result, task_mult_block));
-        CHAN_OUT1(digit_t, A[i], b, CALL_CH(ch_mult_mod));
-
         m = *CHAN_IN2(digit_t, block[i], CH(task_pad, task_mult_block),
                                 CH(task_mult_block_get_result, task_mult_block));
+        
+        CHAN_OUT1(digit_t, A[i], b, CALL_CH(ch_mult_mod));
+
         CHAN_OUT1(digit_t, B[i], m, CALL_CH(ch_mult_mod));
 
         LOG("mult block: a[%u]=%x b[%u]=%x\r\n", i, b, i, m);
@@ -1204,7 +1210,7 @@ void task_mult_block_get_result()
     int i;
     digit_t m, e;
     unsigned cyphertext_len;
-    LOG("TASK_MULT_BLOCK_rsa\r\n"); 
+    //LOG("TASK_MULT_BLOCK_rsa\r\n"); 
 
     LOG("mult block get result: block: ");
     for (i = NUM_DIGITS - 1; i >= 0; --i) { // reverse for printing
@@ -1273,7 +1279,7 @@ void task_square_base()
 {
     int i;
     digit_t b;
-    LOG("TASK_SQUARE_BASE__rsa\r\n"); 
+    //LOG("TASK_SQUARE_BASE__rsa\r\n"); 
 
     LOG("square base\r\n");
 
@@ -1296,7 +1302,7 @@ void task_square_base_get_result()
 {
     int i;
     digit_t b;
-    LOG("TASK_SQUARE_BASE_GET_RESULT_rsa\r\n"); 
+    //LOG("TASK_SQUARE_BASE_GET_RESULT_rsa\r\n"); 
 
     LOG("square base get result\r\n");
 
@@ -1316,7 +1322,7 @@ void task_print_cyphertext()
     unsigned cyphertext_len;
     digit_t c;
     char line[PRINT_HEX_ASCII_COLS];
-    LOG("TASK_PRINT_CYPHERTEXT_rsa\r\n"); 
+    //LOG("TASK_PRINT_CYPHERTEXT_rsa\r\n"); 
 
     cyphertext_len = *CHAN_IN1(unsigned, cyphertext_len,
                                CH(task_mult_block_get_result, task_print_cyphertext));
@@ -1345,7 +1351,7 @@ void task_print_cyphertext()
     blink(1, BLINK_MESSAGE_DONE, LED2);
 #endif
     THREAD_END(); 
-    //TRANSITION_TO_MT(task_init);
+    TRANSITION_TO_MT(task_print_cyphertext);
 }
 
 // TODO: this task also looks like a proxy: is it avoidable?
@@ -1353,7 +1359,7 @@ void task_mult_mod()
 {
     int i;
     digit_t a, b;
-    LOG("TASK_MULT_MOD_rsa\r\n"); 
+    //LOG("TASK_MULT_MOD_rsa\r\n"); 
 
     LOG("mult mod\r\n");
 
@@ -1379,14 +1385,14 @@ void task_mult()
     digit_t a, b, c;
     digit_t dp, p, carry;
     int digit;
-    LOG("TASK_MULT_rsa\r\n"); 
+    //LOG("TASK_MULT_rsa\r\n"); 
 
 #ifdef SHOW_PROGRESS_ON_LED
     blink(1, BLINK_DURATION_TASK / 4, LED1);
 #endif
 
-    digit = *CHAN_IN2(unsigned, digit, CH(task_mult_mod, task_mult), SELF_IN_CH(task_mult));
-    carry = *CHAN_IN2(unsigned, carry, CH(task_mult_mod, task_mult), SELF_IN_CH(task_mult));
+    digit = *CHAN_IN2(int, digit, CH(task_mult_mod, task_mult), SELF_IN_CH(task_mult));
+    carry = *CHAN_IN2(digit_t, carry, CH(task_mult_mod, task_mult), SELF_IN_CH(task_mult));
 
     LOG("mult: digit=%u carry=%x\r\n", digit, carry);
 
@@ -1433,7 +1439,7 @@ void task_reduce_digits()
 {
     int d;
     digit_t m;
-    LOG("TASK_REDUCE_DIGITS_rsa\r\n"); 
+    //LOG("TASK_REDUCE_DIGITS_rsa\r\n"); 
 
     LOG("reduce: digits\r\n");
 
@@ -1463,7 +1469,7 @@ void task_reduce_normalizable()
     int i;
     unsigned m, n, d, offset;
     bool normalizable = true;
-    LOG("TASK_REDUCE_NORMALIZABLE_rsa\r\n"); 
+    //LOG("TASK_REDUCE_NORMALIZABLE_rsa\r\n"); 
 
     LOG("reduce: normalizable\r\n");
 
@@ -1548,7 +1554,7 @@ void task_reduce_normalize()
     digit_t m, n, d, s;
     unsigned borrow, offset;
     const task_t *next_task;
-    LOG("TASK_REDUCE_NORMALIZE_rsa\r\n"); 
+    //LOG("TASK_REDUCE_NORMALIZE_rsa\r\n"); 
 
     LOG("normalize\r\n");
 
@@ -1710,7 +1716,7 @@ void task_reduce_quotient()
 
     CHAN_OUT1(digit_t, quotient, q, CH(task_reduce_quotient, task_reduce_multiply));
 
-    CHAN_OUT1(digit_t, digit, d, MC_OUT_CH(ch_reduce_digit, task_reduce_quotient,
+    CHAN_OUT1(unsigned, digit, d, MC_OUT_CH(ch_reduce_digit, task_reduce_quotient,
                                  task_reduce_multiply, task_reduce_add,
                                  task_reduce_subtract));
 
@@ -1735,14 +1741,14 @@ void task_reduce_multiply()
                                   task_reduce_quotient, task_reduce_multiply));
     q = *CHAN_IN1(digit_t, quotient, CH(task_reduce_quotient, task_reduce_multiply));
 
-    LOG("reduce: multiply: d=%x q=%x\r\n", d, q);
+    //LOG("reduce: multiply: d=%x q=%x\r\n", d, q);
 
     // As part of this task, we also perform the left-shifting of the q*m
     // product by radix^(digit-NUM_DIGITS), where NUM_DIGITS is the number
     // of digits in the modulus. We implement this by fetching the digits
     // of number being reduced at that offset.
     offset = d - NUM_DIGITS;
-    LOG("reduce: multiply: offset=%u\r\n", offset);
+    //LOG("reduce: multiply: offset=%u\r\n", offset);
 
     // For calling the print task we need to proxy to it values that
     // we do not modify
@@ -1794,7 +1800,7 @@ void task_reduce_compare()
     blink(1, BLINK_DURATION_TASK, LED2);
 #endif
 
-    LOG("reduce: compare\r\n");
+    //LOG("reduce: compare\r\n");
 
     // TODO: could transform this loop into a self-edge
     // TODO: this loop might not have to go down to zero, but to NUM_DIGITS
@@ -1822,7 +1828,7 @@ void task_reduce_compare()
         }
     }
 
-    LOG("reduce: compare: relation %c\r\n", relation);
+    //LOG("reduce: compare: relation %c\r\n", relation);
 
     if (relation == '<') {
         TRANSITION_TO_MT(task_reduce_add);
@@ -1852,7 +1858,7 @@ void task_reduce_add()
     // Part of this task is to shift modulus by radix^(digit - NUM_DIGITS)
     offset = d - NUM_DIGITS;
     digit_t dummy = 0; 
-    LOG("reduce: add: d=%u offset=%u\r\n", d, offset);
+    //LOG("reduce: add: d=%u offset=%u\r\n", d, offset);
 
     // For calling the print task we need to proxy to it values that
     // we do not modify
@@ -1918,7 +1924,7 @@ void task_reduce_subtract()
     // The qn product had been shifted by this offset, no need to subtract the zeros
     offset = d - NUM_DIGITS;
 
-    LOG("reduce: subtract: d=%u offset=%u\r\n", d, offset);
+    //LOG("reduce: subtract: d=%u offset=%u\r\n", d, offset);
 
     // For calling the print task we need to proxy to it values that
     // we do not modify
@@ -1991,7 +1997,7 @@ void task_reduce_subtract()
 void task_print_product()
 {
     const task_t* next_task;
-    LOG("TASK_PRINT_PRODUCT_rsa\r\n"); 
+    //LOG("TASK_PRINT_PRODUCT_rsa\r\n"); 
 #ifdef VERBOSE
     int i;
     digit_t m;
